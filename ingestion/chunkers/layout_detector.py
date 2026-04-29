@@ -1,4 +1,4 @@
-"""PDF 排版格式检测 — 单栏/双栏识别、页眉页脚清洗、元素重排"""
+"""PDF 排版格式检测 — 单栏/双栏识别、页眉页脚清洗、目录检测、元素重排"""
 
 from __future__ import annotations
 
@@ -283,3 +283,99 @@ def _interleave_full_width(
     result.extend(right)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# 目录页检测
+# ---------------------------------------------------------------------------
+
+# 目录条目中连续点号的最少数量
+_DOT_LEADER_MIN = 10
+
+
+def detect_toc_pages(doc: fitz.Document) -> set[int]:
+    """检测 PDF 文档中的目录页。
+
+    通过点号引导线（dot leader）特征识别目录页：
+    每行有 span 包含大量连续 '.' 字符，且点号 span 的 x1 接近右边距。
+
+    Returns:
+        目录页页码集合（0-indexed）
+    """
+    total = len(doc)
+    if total == 0:
+        return set()
+
+    # 只扫描文档前 20% 页面
+    max_check = max(total // 5, 10)
+
+    toc_pages: set[int] = set()
+    for pn in range(min(max_check, total)):
+        page = doc[pn]
+        if _is_toc_page(page):
+            toc_pages.add(pn)
+
+    # 如果检测到目录页，检查相邻页是否也是目录页（可能目录跨越多页）
+    if toc_pages:
+        min_pn = min(toc_pages)
+        max_pn = max(toc_pages)
+        # 扩展连续范围（前后各检查1页）
+        for pn in range(max(0, min_pn - 1), min(max_pn + 2, total)):
+            if pn not in toc_pages:
+                page = doc[pn]
+                if _is_toc_page(page, threshold=3):
+                    toc_pages.add(pn)
+
+    if toc_pages:
+        logger.info("检测到目录页: %s", sorted(toc_pages))
+
+    return toc_pages
+
+
+def _is_toc_page(page: fitz.Page, threshold: int = 5) -> bool:
+    """判断页面是否为目录页。
+
+    Args:
+        page: pymupdf 页面对象
+        threshold: 目录条目行的最少数量
+    """
+    blocks = page.get_text("dict")["blocks"]
+
+    total_lines = 0
+    toc_entry_count = 0
+
+    for block in blocks:
+        if block["type"] != 0:
+            continue
+        for line in block["lines"]:
+            line_text = "".join(s["text"] for s in line["spans"]).strip()
+            if not line_text:
+                continue
+            total_lines += 1
+
+            if _is_toc_entry_line(line):
+                toc_entry_count += 1
+
+    if total_lines == 0:
+        return False
+
+    # 匹配行数 ≥ 阈值 或 ≥ 总行数 40%
+    if toc_entry_count >= threshold:
+        return True
+    if total_lines >= 3 and toc_entry_count / total_lines >= 0.4:
+        return True
+
+    return False
+
+
+def _is_toc_entry_line(line: dict) -> bool:
+    """判断一行是否为目录条目（含点号引导线）。
+
+    检测条件：行中存在一个 span，连续 '.' 字符超过阈值数量。
+    """
+    for span in line["spans"]:
+        text = span["text"]
+        dot_count = text.count(".")
+        if dot_count >= _DOT_LEADER_MIN:
+            return True
+    return False

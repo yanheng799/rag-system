@@ -638,3 +638,61 @@ class TestCrossPageParagraph:
         ]
         result = group_elements_by_paragraph(elements, max_chunk_size=0)
         assert len(result) == 2
+
+
+from ingestion.chunkers.layout_detector import detect_toc_pages
+
+
+class TestTocDetection:
+    """目录页检测测试"""
+
+    def test_toc_pages_in_project_plan(self):
+        """项目管理实施规划应检测到目录页"""
+        import fitz
+
+        doc = fitz.open("test-files/1.项目管理实施规划.pdf")
+        toc_pages = detect_toc_pages(doc)
+        doc.close()
+        assert len(toc_pages) > 0
+        # 目录页应在文档前部（page 2-3）
+        assert any(pn in toc_pages for pn in [2, 3])
+
+    def test_no_toc_in_tower_detail(self):
+        """塔位明细表不应检测到目录页"""
+        import fitz
+
+        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        toc_pages = detect_toc_pages(doc)
+        doc.close()
+        assert len(toc_pages) == 0
+
+    def test_no_toc_in_design_doc(self):
+        """设计交底文件不应误检测目录页"""
+        import fitz
+
+        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        toc_pages = detect_toc_pages(doc)
+        doc.close()
+        # 设计交底文件有书签但无传统目录页（无点号引导线）
+        # 即使检测到，也不应误判正文页为目录页
+        # 检查正文页（page 3+）不在 toc_pages 中
+        for pn in range(3, 10):
+            assert pn not in toc_pages, f"Page {pn} should not be detected as TOC"
+
+
+class TestTocFiltered:
+    """目录内容过滤测试"""
+
+    def test_toc_content_filtered_in_parse(self):
+        """解析后目录页内容应被过滤"""
+        from ingestion.parsers.pdf_parser import PDFParser
+
+        parser = PDFParser()
+        elements = parser.parse("test-files/1.项目管理实施规划.pdf")
+        # 不应包含连续点号引导线的内容（目录条目特征：50+ 连续点号）
+        import re
+        toc_lines = [
+            e for e in elements
+            if not e.is_table and re.search(r'\.{50,}', e.content)
+        ]
+        assert len(toc_lines) == 0, f"Found TOC content: {[e.content[:60] for e in toc_lines[:3]]}"

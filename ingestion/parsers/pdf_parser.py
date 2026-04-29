@@ -11,6 +11,7 @@ from ingestion.chunkers.heading_patterns import is_heading_combined
 from ingestion.chunkers.layout_detector import (
     detect_header_footer_zones,
     detect_page_layout,
+    detect_toc_pages,
     is_in_header_footer,
     reorder_elements_for_layout,
 )
@@ -29,10 +30,14 @@ class PDFParser(BaseParser):
             raise ParseError(file_path, str(e))
 
         hf_zones = detect_header_footer_zones(doc)
+        toc_pages = detect_toc_pages(doc)
         elements: list[ParsedElement] = []
         page_sizes: dict[int, tuple[float, float]] = {}
 
         for page_num in range(len(doc)):
+            if page_num in toc_pages:
+                continue
+
             page = doc[page_num]
             page_sizes[page_num] = (page.rect.width, page.rect.height)
             layout = detect_page_layout(page)
