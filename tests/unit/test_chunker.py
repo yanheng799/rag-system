@@ -112,6 +112,66 @@ class TestHeaderFooterDetection:
         assert is_in_header_footer((100, 100, 300, 120), zones) is False
 
 
+class TestTableMarkdownFormat:
+    """表格 Markdown 格式测试"""
+
+    def test_pdf_table_has_separator(self):
+        """PDF 表格应包含 Markdown 分隔行 |---|"""
+        from ingestion.parsers.pdf_parser import PDFParser
+
+        parser = PDFParser()
+        elements = parser.parse(
+            "test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf"
+        )
+        tables = [e for e in elements if e.is_table]
+        assert len(tables) > 0
+        for t in tables:
+            # 分隔行应出现在表格内容中
+            assert "---" in t.content, f"Table missing separator: {t.content[:60]}"
+
+    def test_pdf_table_rows_start_with_pipe(self):
+        """PDF 表格数据行应以 | 开头"""
+        from ingestion.parsers.pdf_parser import PDFParser
+
+        parser = PDFParser()
+        elements = parser.parse(
+            "test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf"
+        )
+        tables = [e for e in elements if e.is_table]
+        # 检查简单表格（前几个表格是单行表头，格式完整）
+        for t in tables[:5]:
+            lines = t.content.strip().split("\n")
+            # 前 3 行（表头、分隔行、数据行）都应以 | 开头
+            for line in lines[:3]:
+                assert line.startswith("|"), f"Not markdown: {line[:60]}"
+
+    def test_describer_passes_markdown_through(self):
+        """TableDescriber 应透传 Markdown 内容"""
+        from ingestion.table_processor.describer import TableDescriber
+
+        describer = TableDescriber()
+        md = "| 姓名 | 年龄 |\n|---|---|\n| 张三 | 25 |"
+        elem = ParsedElement(elem_type="table", content=md, page=0)
+        assert describer.describe(elem) == md
+
+    def test_describer_passes_excel_format(self):
+        """TableDescriber 应透传 Excel 格式"""
+        from ingestion.table_processor.describer import TableDescriber
+
+        describer = TableDescriber()
+        excel = "工作表: Sheet1\n表头: A | B\nA: 1; B: 2"
+        elem = ParsedElement(elem_type="table", content=excel, page=0)
+        assert describer.describe(elem) == excel
+
+    def test_describer_empty_content(self):
+        """TableDescriber 处理空内容"""
+        from ingestion.table_processor.describer import TableDescriber
+
+        describer = TableDescriber()
+        elem = ParsedElement(elem_type="table", content="", page=0)
+        assert describer.describe(elem) == ""
+
+
 from ingestion.chunkers.heading_patterns import (
     is_heading_by_pattern,
     is_heading_combined,

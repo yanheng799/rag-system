@@ -147,17 +147,20 @@ class PDFParser(BaseParser):
         return elements
 
     def _extract_table_text(self, table) -> str:
-        """将 pymupdf 表格对象提取为文字描述"""
+        """将 pymupdf 表格对象提取为 Markdown 表格"""
         rows = table.extract()
         if not rows:
             return ""
 
-        lines = []
-        for row in rows:
-            cells = [str(cell) if cell else "" for cell in row]
-            lines.append(" | ".join(cells))
+        md_lines = []
+        for i, row in enumerate(rows):
+            cells = [str(cell).replace("|", "｜") if cell else "" for cell in row]
+            md_lines.append("| " + " | ".join(cells) + " |")
+            # 表头后插入分隔行
+            if i == 0:
+                md_lines.append("|" + "|".join("---" for _ in cells) + "|")
 
-        return "\n".join(lines)
+        return "\n".join(md_lines)
 
     def _is_in_table(self, bbox, table_bboxes: list) -> bool:
         """判断文字块是否在表格区域内"""

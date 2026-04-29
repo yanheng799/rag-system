@@ -11,7 +11,7 @@ class ContentElement:
     """内容元素：文字或表格"""
 
     type: str  # "text" | "table"
-    content: str  # 文字原文或表格语义描述
+    content: str  # 文字原文或表格 Markdown 内容
     image_url: Optional[str] = None  # 仅 table 有值，内部 OSS 路径
 
     def to_dict(self) -> dict:

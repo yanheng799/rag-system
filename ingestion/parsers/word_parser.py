@@ -96,14 +96,17 @@ class WordParser(BaseParser):
         return style
 
     def _extract_table_text(self, table) -> str:
-        """提取表格内容为文字"""
-        rows = []
-        for row in table.rows:
+        """提取表格内容为 Markdown 表格"""
+        md_lines = []
+        for i, row in enumerate(table.rows):
             cells = []
             for cell in row.cells:
-                cells.append(cell.text.strip() if cell.text else "")
-            rows.append(" | ".join(cells))
-        return "\n".join(rows)
+                text = cell.text.strip().replace("|", "｜") if cell.text else ""
+                cells.append(text)
+            md_lines.append("| " + " | ".join(cells) + " |")
+            if i == 0:
+                md_lines.append("|" + "|".join("---" for _ in cells) + "|")
+        return "\n".join(md_lines)
 
     def supported_types(self) -> list[str]:
         return ["docx"]
