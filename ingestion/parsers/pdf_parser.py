@@ -109,8 +109,9 @@ class PDFParser(BaseParser):
         table_bboxes: list,
         hf_zones: list | None = None,
     ) -> list[ParsedElement]:
-        """提取文字块，跳过表格区域和页眉页脚"""
+        """提取文字块，跳过表格区域、页眉页脚和页码"""
         elements: list[ParsedElement] = []
+        page_height = page.rect.height
         blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
 
         for block in blocks:
@@ -143,6 +144,10 @@ class PDFParser(BaseParser):
 
                 line_text = line_text.strip()
                 if not line_text:
+                    continue
+
+                # 跳过页码（页面边缘区域的独立短数字）
+                if self._is_page_number(line_text, line_bbox, page_height):
                     continue
 
                 # 判断元素类型
@@ -207,6 +212,16 @@ class PDFParser(BaseParser):
         ):
             return "list_item"
         return "text"
+
+    def _is_page_number(self, text: str, bbox: tuple, page_height: float) -> bool:
+        """判断文本是否为页码（页面边缘区域的独立短数字）"""
+        if not text.isdigit() or len(text) > 3:
+            return False
+        y0 = bbox[1]
+        # 页码通常在顶部 8% 或底部 10%
+        if y0 < page_height * 0.08 or y0 > page_height * 0.90:
+            return True
+        return False
 
     def supported_types(self) -> list[str]:
         return ["pdf"]
