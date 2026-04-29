@@ -2,12 +2,192 @@
 
 import pytest
 
+from ingestion.chunkers.layout_detector import (
+    detect_header_footer_zones,
+    detect_page_layout,
+    is_in_header_footer,
+    reorder_elements_for_layout,
+)
+from ingestion.parsers.base import ParsedElement
+
+
+class TestLayoutDetector:
+    """排版检测测试 — 使用真实 PDF 文件"""
+
+    def test_tower_detail_is_double(self):
+        """塔位明细表应识别为双栏"""
+        import fitz
+
+        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        # 第2-4页应为双栏
+        for pn in [2, 3, 4]:
+            assert detect_page_layout(doc[pn]) == "double", f"Page {pn} should be double"
+        doc.close()
+
+    def test_design_doc_is_single(self):
+        """设计交底文件首页/目录页应为单栏"""
+        import fitz
+
+        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        # 目录页（第3-7页）应识别为单栏
+        for pn in [3, 4, 5, 6, 7]:
+            assert detect_page_layout(doc[pn]) == "single", f"Page {pn} should be single"
+        doc.close()
+
+    def test_cover_page_is_single(self):
+        """封面页（词数不足）应为单栏"""
+        import fitz
+
+        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        assert detect_page_layout(doc[0]) == "single"
+        doc.close()
+
+    def test_reorder_double_column(self):
+        """双栏元素应按左列→右列重排"""
+        elements = [
+            ParsedElement(elem_type="text", content="右1", page=0, bbox=(600, 100, 800, 110)),
+            ParsedElement(elem_type="text", content="左1", page=0, bbox=(100, 100, 300, 110)),
+            ParsedElement(elem_type="text", content="右2", page=0, bbox=(600, 200, 800, 210)),
+            ParsedElement(elem_type="text", content="左2", page=0, bbox=(100, 200, 300, 210)),
+        ]
+        result = reorder_elements_for_layout(elements, 1191, "double")
+        assert [e.content for e in result] == ["左1", "左2", "右1", "右2"]
+
+    def test_reorder_single_column_unchanged(self):
+        """单栏模式下不重排"""
+        elements = [
+            ParsedElement(elem_type="text", content="A", page=0, bbox=(100, 100, 300, 110)),
+            ParsedElement(elem_type="text", content="B", page=0, bbox=(100, 200, 300, 210)),
+        ]
+        result = reorder_elements_for_layout(elements, 595, "single")
+        assert result == elements
+
+
+class TestHeaderFooterDetection:
+    """页眉页脚检测测试"""
+
+    def test_tower_detail_has_header(self):
+        """塔位明细表应检测到页眉"""
+        import fitz
+
+        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        zones = detect_header_footer_zones(doc)
+        doc.close()
+        assert len(zones) > 0
+        # 应有页眉区间 (y < 50)
+        assert any(z[0] < 50 for z in zones)
+
+    def test_tower_detail_has_footer(self):
+        """塔位明细表应检测到页脚"""
+        import fitz
+
+        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        zones = detect_header_footer_zones(doc)
+        doc.close()
+        # 应有页脚区间 (y > 700)
+        assert any(z[0] > 700 for z in zones)
+
+    def test_tower_detail_header_filtered(self):
+        """解析后不应包含页眉内容"""
+        from ingestion.parsers.pdf_parser import PDFParser
+
+        parser = PDFParser()
+        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        # 页眉 "千伏直流输电线路工程" 不应出现在解析结果中
+        assert not any("千伏直流输电线路工程" in e.content for e in elements)
+
+    def test_design_doc_no_false_positives(self):
+        """设计交底文件不应误检页眉页脚"""
+        import fitz
+
+        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        zones = detect_header_footer_zones(doc)
+        doc.close()
+        assert len(zones) == 0
+
+    def test_is_in_header_footer(self):
+        zones = [(28, 44), (762, 778)]
+        assert is_in_header_footer((100, 28, 300, 44), zones) is True
+        assert is_in_header_footer((100, 762, 300, 778), zones) is True
+        assert is_in_header_footer((100, 100, 300, 120), zones) is False
+
+
+from ingestion.chunkers.heading_patterns import (
+    is_heading_by_pattern,
+    is_heading_combined,
+)
 from ingestion.chunkers.paragraph_grouper import (
     detect_chunk_type,
     group_elements_by_paragraph,
+    is_heading_element,
     is_new_paragraph_boundary,
 )
 from ingestion.parsers.base import ParsedElement
+
+
+class TestHeadingPatterns:
+    """标题正则匹配测试"""
+
+    def test_chinese_chapter(self):
+        assert is_heading_by_pattern("第三章 数据结构") is True
+
+    def test_chinese_section(self):
+        assert is_heading_by_pattern("第二节 算法分析") is True
+
+    def test_chinese_part(self):
+        assert is_heading_by_pattern("第一篇 概述") is True
+
+    def test_chinese_clause(self):
+        assert is_heading_by_pattern("第三条 适用范围") is True
+
+    def test_numbered_section(self):
+        assert is_heading_by_pattern("3.2 排序算法") is True
+
+    def test_numbered_with_chinese_dot(self):
+        assert is_heading_by_pattern("3、施工要求") is True
+
+    def test_sub_numbered_section(self):
+        assert is_heading_by_pattern("3.2.1 数据采集") is True
+
+    def test_english_chapter(self):
+        assert is_heading_by_pattern("Chapter 3: Methods") is True
+
+    def test_english_section(self):
+        assert is_heading_by_pattern("Section 3.2 Analysis") is True
+
+    def test_normal_text_not_heading(self):
+        assert is_heading_by_pattern("这是一段普通的正文内容") is False
+
+    def test_long_text_not_heading(self):
+        assert is_heading_by_pattern("第" + "x" * 101) is False
+
+    def test_combined_style_font_size(self):
+        assert is_heading_combined("普通文字", font_size=16, is_bold=False) is True
+
+    def test_combined_style_bold(self):
+        assert is_heading_combined("普通文字", font_size=12, is_bold=True) is True
+
+    def test_combined_pattern(self):
+        assert is_heading_combined("第三章 概述", font_size=10, is_bold=False) is True
+
+    def test_combined_neither(self):
+        assert is_heading_combined("普通文字", font_size=10, is_bold=False) is False
+
+
+class TestHeadingElement:
+    """标题元素判断测试"""
+
+    def test_elem_type_title(self):
+        elem = ParsedElement(elem_type="title", content="任何文字", page=0)
+        assert is_heading_element(elem) is True
+
+    def test_elem_type_text_but_heading_pattern(self):
+        elem = ParsedElement(elem_type="text", content="第三章 概述", page=0)
+        assert is_heading_element(elem) is True
+
+    def test_elem_type_text_normal(self):
+        elem = ParsedElement(elem_type="text", content="普通文字", page=0)
+        assert is_heading_element(elem) is False
 
 
 class TestParagraphBoundary:
@@ -17,10 +197,12 @@ class TestParagraphBoundary:
         elem = ParsedElement(elem_type="text", content="hello", page=0)
         assert is_new_paragraph_boundary(elem, []) is True
 
-    def test_title_is_boundary(self):
-        elem = ParsedElement(elem_type="title", content="标题", page=0)
-        group = [ParsedElement(elem_type="text", content="上文", page=0)]
-        assert is_new_paragraph_boundary(elem, group) is True
+    def test_title_does_not_split(self):
+        """标题不再作为段落边界 — 标题与下方内容合并"""
+        elem = ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 20, 100, 30))
+        group = [ParsedElement(elem_type="text", content="上文", page=0, bbox=(0, 0, 100, 10))]
+        # 标题紧跟上文（间距小），不拆分
+        assert is_new_paragraph_boundary(elem, group) is False
 
     def test_same_page_close_position_not_boundary(self):
         group = [ParsedElement(elem_type="text", content="上文", page=0, bbox=(0, 0, 100, 10))]
@@ -37,6 +219,12 @@ class TestParagraphBoundary:
         elem = ParsedElement(elem_type="text", content="下文", page=0, bbox=(0, 50, 100, 60))
         assert is_new_paragraph_boundary(elem, group) is True
 
+    def test_gap_after_heading_is_not_boundary(self):
+        """标题后的大间距不拆分 — 标题吸收下方内容"""
+        group = [ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 0, 100, 10))]
+        elem = ParsedElement(elem_type="text", content="内容", page=0, bbox=(0, 50, 100, 60))
+        assert is_new_paragraph_boundary(elem, group) is False
+
 
 class TestGroupByParagraph:
     """段落分组测试"""
@@ -50,14 +238,28 @@ class TestGroupByParagraph:
         assert len(result) == 1
         assert len(result[0]) == 1
 
-    def test_title_splits_paragraph(self):
+    def test_title_merges_with_following_content(self):
+        """标题与后续内容合并在同一组"""
         elements = [
             ParsedElement(elem_type="text", content="文字1", page=0, bbox=(0, 0, 100, 10)),
-            ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 20, 100, 30)),
-            ParsedElement(elem_type="text", content="文字2", page=0, bbox=(0, 32, 100, 40)),
+            ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 30, 100, 40)),
+            ParsedElement(elem_type="text", content="文字2", page=0, bbox=(0, 42, 100, 50)),
         ]
-        result = group_elements_by_paragraph(elements)
-        assert len(result) == 2  # 标题分隔
+        result = group_elements_by_paragraph(elements, max_chunk_size=0)
+        # 文字1 → 标题(间距20px>15px，拆分)，标题+文字2合并
+        assert len(result) == 2
+        assert result[1][0].content == "标题"
+        assert result[1][1].content == "文字2"
+
+    def test_heading_pattern_merges_with_content(self):
+        """正则匹配的标题也与后续内容合并"""
+        elements = [
+            ParsedElement(elem_type="text", content="第三章 设计", page=0, bbox=(0, 0, 100, 10)),
+            ParsedElement(elem_type="text", content="正文内容", page=0, bbox=(0, 12, 100, 20)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=0)
+        assert len(result) == 1
+        assert result[0][0].content == "第三章 设计"
 
     def test_mixed_text_and_table(self):
         elements = [
@@ -84,6 +286,55 @@ class TestGroupByParagraph:
         result = group_elements_by_paragraph(elements)
         assert len(result) == 1
         assert detect_chunk_type(result[0]) == "text"
+
+
+class TestMaxChunkSize:
+    """最大分块限制测试"""
+
+    def test_oversized_group_is_split(self):
+        """超长文本被拆分"""
+        elements = [
+            ParsedElement(elem_type="text", content="a" * 500, page=0, bbox=(0, 0, 100, 10)),
+            ParsedElement(elem_type="text", content="b" * 500, page=0, bbox=(0, 11, 100, 20)),
+            ParsedElement(elem_type="text", content="c" * 500, page=0, bbox=(0, 21, 100, 30)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=1024)
+        # 总共 1500 字符，应该被拆分为多个组
+        assert len(result) > 1
+        for group in result:
+            size = sum(len(e.content) for e in group)
+            assert size <= 1536  # 允许单个超限元素独占一组
+
+    def test_small_group_not_split(self):
+        """小文本不被拆分"""
+        elements = [
+            ParsedElement(elem_type="text", content="短文本", page=0, bbox=(0, 0, 100, 10)),
+            ParsedElement(elem_type="text", content="短文本2", page=0, bbox=(0, 11, 100, 20)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=1024)
+        assert len(result) == 1
+
+    def test_single_large_element_in_own_group(self):
+        """单个超大元素单独成组"""
+        elements = [
+            ParsedElement(elem_type="table", content="x" * 2000, page=0, bbox=(0, 0, 100, 40)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=1024)
+        assert len(result) == 1
+        assert len(result[0]) == 1
+
+    def test_heading_not_orphaned(self):
+        """标题不会被孤立 — 至少包含一个后续元素"""
+        elements = [
+            ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 0, 100, 10)),
+            ParsedElement(elem_type="text", content="a" * 500, page=0, bbox=(0, 12, 100, 20)),
+            ParsedElement(elem_type="text", content="b" * 600, page=0, bbox=(0, 22, 100, 30)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=1024)
+        # 不应出现只有标题的孤立组
+        for group in result:
+            if any(e.is_title for e in group):
+                assert len(group) > 1
 
 
 class TestDetectChunkType:

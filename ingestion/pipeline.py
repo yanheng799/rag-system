@@ -8,6 +8,7 @@ import os
 import uuid
 from typing import Optional
 
+from config.settings import settings
 from ingestion.chunkers.chunk_assembler import ChunkBuilder
 from ingestion.chunkers.paragraph_grouper import group_elements_by_paragraph
 from ingestion.embedder import Embedder
@@ -81,7 +82,11 @@ class IngestionPipeline:
                 return
 
             # 4. 段落边界识别
-            paragraphs = group_elements_by_paragraph(elements)
+            paragraphs = group_elements_by_paragraph(
+                elements,
+                vertical_gap_threshold=settings.chunk_vertical_gap,
+                max_chunk_size=settings.chunk_max_size,
+            )
             logger.info("段落聚合完成: %d 个段落组", len(paragraphs))
 
             # 5. 组装 MixedChunk
@@ -108,13 +113,18 @@ class IngestionPipeline:
 
             logger.info("MixedChunk 组装完成: %d 个分块", len(chunks))
 
-            # 6. Embedding 向量化
-            texts = [c.full_text for c in chunks]
+            # 6. Embedding 向量化（过滤空文本）
+            non_empty_chunks = [c for c in chunks if c.full_text.strip()]
+            if not non_empty_chunks:
+                await self._doc_store.update_status(doc_id, "done")
+                logger.info("文档所有分块为空，跳过: doc_id=%s", doc_id)
+                return
+            texts = [c.full_text for c in non_empty_chunks]
             embeddings = self._embedder.embed(texts)
 
             # 7. 写入 Milvus
             milvus_records = []
-            for chunk, embedding in zip(chunks, embeddings):
+            for chunk, embedding in zip(non_empty_chunks, embeddings):
                 milvus_records.append({
                     "embedding": embedding,
                     "chunk_id": chunk.metadata.chunk_id,
@@ -133,7 +143,7 @@ class IngestionPipeline:
             logger.info("Milvus 写入完成: %d 条向量记录", len(milvus_records))
 
             # 8. 写入 PostgreSQL chunks 表
-            for chunk in chunks:
+            for chunk in non_empty_chunks:
                 chunk_record = ChunkRecord(
                     chunk_id=chunk.metadata.chunk_id,
                     doc_id=chunk.metadata.doc_id,
@@ -149,7 +159,7 @@ class IngestionPipeline:
 
             # 9. 更新状态为 done
             await self._doc_store.update_status(doc_id, "done")
-            logger.info("文档摄入成功: doc_id=%s, 共 %d 个分块", doc_id, len(chunks))
+            logger.info("文档摄入成功: doc_id=%s, 共 %d 个分块", doc_id, len(non_empty_chunks))
 
         except Exception as e:
             logger.error("文档摄入失败: doc_id=%s, 错误: %s", doc_id, str(e))

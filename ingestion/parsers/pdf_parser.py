@@ -7,6 +7,13 @@ from typing import Optional
 
 import fitz  # pymupdf
 
+from ingestion.chunkers.heading_patterns import is_heading_combined
+from ingestion.chunkers.layout_detector import (
+    detect_header_footer_zones,
+    detect_page_layout,
+    is_in_header_footer,
+    reorder_elements_for_layout,
+)
 from ingestion.parsers.base import BaseParser, ParsedElement, ParseError
 
 logger = logging.getLogger(__name__)
@@ -21,17 +28,25 @@ class PDFParser(BaseParser):
         except Exception as e:
             raise ParseError(file_path, str(e))
 
+        hf_zones = detect_header_footer_zones(doc)
         elements: list[ParsedElement] = []
 
         for page_num in range(len(doc)):
             page = doc[page_num]
-            elements.extend(self._parse_page(page, page_num))
+            layout = detect_page_layout(page)
+            elements.extend(self._parse_page(page, page_num, layout, hf_zones))
 
         doc.close()
         logger.info("PDF 解析完成: %s, 共 %d 个元素", file_path, len(elements))
         return elements
 
-    def _parse_page(self, page: fitz.Page, page_num: int) -> list[ParsedElement]:
+    def _parse_page(
+        self,
+        page: fitz.Page,
+        page_num: int,
+        layout: str = "single",
+        hf_zones: list | None = None,
+    ) -> list[ParsedElement]:
         """解析单页，提取文字和表格"""
         elements: list[ParsedElement] = []
         page_width = page.rect.width
@@ -39,7 +54,6 @@ class PDFParser(BaseParser):
         # 先提取表格区域，用于过滤文字块中的表格部分
         tables = page.find_tables()
         table_bboxes = []
-        table_cells_map = {}
 
         for table_idx, table in enumerate(tables):
             bbox = table.bbox
@@ -47,7 +61,6 @@ class PDFParser(BaseParser):
 
             # 提取表格内容
             table_text = self._extract_table_text(table)
-            table_cells_map[table_idx] = table.cells if hasattr(table, 'cells') else []
 
             elements.append(
                 ParsedElement(
@@ -60,19 +73,26 @@ class PDFParser(BaseParser):
                 )
             )
 
-        # 提取文字块（排除已识别为表格的区域）
-        text_elements = self._extract_text_blocks(page, page_num, table_bboxes)
+        # 提取文字块（排除已识别为表格的区域和页眉页脚）
+        text_elements = self._extract_text_blocks(page, page_num, table_bboxes, hf_zones)
         elements.extend(text_elements)
 
         # 按 y 坐标排序（从上到下），x 坐标为次要排序
         elements.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
 
+        # 根据排版格式重排元素（双栏：左列→右列）
+        elements = reorder_elements_for_layout(elements, page_width, layout)
+
         return elements
 
     def _extract_text_blocks(
-        self, page: fitz.Page, page_num: int, table_bboxes: list
+        self,
+        page: fitz.Page,
+        page_num: int,
+        table_bboxes: list,
+        hf_zones: list | None = None,
     ) -> list[ParsedElement]:
-        """提取文字块，跳过表格区域"""
+        """提取文字块，跳过表格区域和页眉页脚"""
         elements: list[ParsedElement] = []
         blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
 
@@ -87,6 +107,12 @@ class PDFParser(BaseParser):
                 continue
 
             for line in block["lines"]:
+                line_bbox = tuple(line["bbox"])
+
+                # 跳过页眉页脚
+                if hf_zones and is_in_header_footer(line_bbox, hf_zones):
+                    continue
+
                 line_text = ""
                 max_font_size = 0
                 is_bold = False
@@ -110,7 +136,7 @@ class PDFParser(BaseParser):
                         elem_type=elem_type,
                         content=line_text,
                         page=page_num,
-                        bbox=tuple(line["bbox"]),
+                        bbox=line_bbox,
                         style={
                             "font_size": max_font_size,
                             "bold": is_bold,
@@ -151,9 +177,9 @@ class PDFParser(BaseParser):
     def _detect_text_type(
         self, text: str, font_size: float, is_bold: bool
     ) -> str:
-        """根据样式判断文字类型"""
-        # 标题判断：字号大于正文 或 加粗
-        if font_size >= 14 or (is_bold and font_size >= 12):
+        """根据样式和正则判断文字类型"""
+        # 标题判断：样式（字号/加粗）OR 正则匹配
+        if is_heading_combined(text, font_size, is_bold):
             return "title"
         # 列表项判断
         if text.startswith(("•", "●", "◆", "○", "■")) or (

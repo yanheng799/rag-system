@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import logging
 
+from ingestion.chunkers.heading_patterns import is_heading_by_pattern
 from ingestion.parsers.base import ParsedElement
 
 logger = logging.getLogger(__name__)
 
 # 默认垂直间距阈值（像素），超过此值认为是新段落
 DEFAULT_VERTICAL_GAP_THRESHOLD = 15.0
-# 默认行高倍数阈值
-DEFAULT_LINE_HEIGHT_MULTIPLIER = 1.5
+# 默认最大分块字符数
+DEFAULT_MAX_CHUNK_SIZE = 1024
+
+
+def is_heading_element(elem: ParsedElement) -> bool:
+    """判断元素是否为标题（elem_type 或正则匹配）"""
+    if elem.is_title:
+        return True
+    return is_heading_by_pattern(elem.content)
 
 
 def is_new_paragraph_boundary(
@@ -22,28 +30,27 @@ def is_new_paragraph_boundary(
     """
     判断当前元素是否为新段落边界。
 
-    以下任一条件成立则认为是新段落：
-    1. elem 类型为 "title"（标题级元素必然是新段落）
-    2. elem 与 group 最后一个元素的垂直间距 > 阈值
-    3. elem 在新的一页（跨页判断）
-    4. 当前 group 为空
+    规则：
+    1. 当前 group 为空 → 新段落
+    2. 跨页 → 新段落
+    3. 垂直间距 > 阈值 且 前一个元素不是标题 → 新段落
+    4. 标题元素不触发新边界（标题与下方内容合并）
     """
     if not group:
         return True
 
-    # 标题元素始终是新段落起点
-    if elem.is_title:
-        return True
-
     last = group[-1]
 
-    # 跨页判断：不同页码视为新段落
+    # 跨页判断
     if elem.page != last.page:
         return True
 
     # 垂直间距判断
     gap = _calculate_vertical_gap(last, elem)
     if gap > vertical_gap_threshold:
+        # 前一个元素是标题 → 不拆分，标题吸收下方内容
+        if is_heading_element(last):
+            return False
         return True
 
     return False
@@ -52,15 +59,19 @@ def is_new_paragraph_boundary(
 def group_elements_by_paragraph(
     elements: list[ParsedElement],
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
+    max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
 ) -> list[list[ParsedElement]]:
     """
     将扁平 Element 列表按段落边界聚合为段落组。
 
-    每个 paragraph group 可能包含文字和表格的混合内容。
+    两阶段处理：
+    1. 按段落边界分组（标题与内容合并）
+    2. 超长分组拆分（不超过 max_chunk_size 字符）
     """
     if not elements:
         return []
 
+    # 阶段 1：按段落边界分组
     paragraphs: list[list[ParsedElement]] = []
     current_group: list[ParsedElement] = []
 
@@ -81,19 +92,83 @@ def group_elements_by_paragraph(
         len(elements),
         len(paragraphs),
     )
+
+    # 阶段 2：超长分组拆分
+    if max_chunk_size > 0:
+        paragraphs = _split_oversized_groups(paragraphs, max_chunk_size)
+        logger.info("超长拆分后: %d 个段落组", len(paragraphs))
+
     return paragraphs
+
+
+def _split_oversized_groups(
+    paragraphs: list[list[ParsedElement]],
+    max_chunk_size: int,
+) -> list[list[ParsedElement]]:
+    """拆分超长的段落组"""
+    result: list[list[ParsedElement]] = []
+    for group in paragraphs:
+        group_size = sum(len(e.content) for e in group)
+        if group_size <= max_chunk_size or len(group) <= 1:
+            result.append(group)
+            continue
+        sub_groups = _split_group_by_size(group, max_chunk_size)
+        result.extend(sub_groups)
+    return result
+
+
+def _split_group_by_size(
+    group: list[ParsedElement],
+    max_chunk_size: int,
+) -> list[list[ParsedElement]]:
+    """按元素边界拆分单个段落组。
+
+    确保标题不会孤立：如果子组以标题开头，至少包含一个非标题元素。
+    """
+    sub_groups: list[list[ParsedElement]] = []
+    current: list[ParsedElement] = []
+    current_size = 0
+
+    for elem in group:
+        elem_size = len(elem.content)
+
+        # 单个元素超限 → 单独成组
+        if elem_size > max_chunk_size and current:
+            sub_groups.append(current)
+            current = [elem]
+            current_size = elem_size
+            continue
+
+        # 加入当前元素会超限 → 切分
+        if current_size + elem_size > max_chunk_size and current:
+            # 如果当前组只有标题一个元素，强制吸收下一个元素避免标题孤立
+            if len(current) == 1 and is_heading_element(current[0]):
+                current.append(elem)
+                current_size += elem_size
+                continue
+            sub_groups.append(current)
+            current = [elem]
+            current_size = elem_size
+            continue
+
+        current.append(elem)
+        current_size += elem_size
+
+    if current:
+        # 如果最后一个子组是孤立的标题，合并到前一个子组
+        if len(current) == 1 and is_heading_element(current[0]) and sub_groups:
+            sub_groups[-1].extend(current)
+        else:
+            sub_groups.append(current)
+
+    return sub_groups
 
 
 def _calculate_vertical_gap(elem_a: ParsedElement, elem_b: ParsedElement) -> float:
     """计算两个元素之间的垂直间距"""
-    # elem_a 的底部 y 坐标 - elem_b 的顶部 y 坐标
     a_bottom = elem_a.bbox[3]
     b_top = elem_b.bbox[1]
-
-    # 如果 a 在 b 上方，gap 为正
     gap = b_top - a_bottom
-
-    # 处理重叠情况（负值表示重叠，不算新段落）
     return max(0, gap)
 
 

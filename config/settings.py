@@ -57,6 +57,10 @@ class Settings(BaseSettings):
         description="Phase 1 支持的文件类型",
     )
 
+    # 分块配置
+    chunk_max_size: int = Field(default=1024, description="最大分块字符数")
+    chunk_vertical_gap: float = Field(default=15.0, description="段落垂直间距阈值(px)")
+
     # 检索配置
     default_top_k: int = Field(default=5, description="默认返回结果数")
     retrieval_top_k: int = Field(default=50, description="粗召回数量")

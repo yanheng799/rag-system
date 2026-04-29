@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class Embedder:
     """DashScope text-embedding-v2 API 封装"""
 
+    MAX_INPUT_LENGTH = 2048
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -38,7 +40,7 @@ class Embedder:
         batch_size = 25
 
         for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
+            batch = [t[:self.MAX_INPUT_LENGTH] for t in texts[i : i + batch_size]]
             response = self._call_api(batch)
             for item in response.get("data", []):
                 all_embeddings.append(item["embedding"])
@@ -70,5 +72,11 @@ class Embedder:
                 headers=headers,
                 json=payload,
             )
+            if response.status_code != 200:
+                logger.error(
+                    "Embedding API 错误: status=%d, body=%s",
+                    response.status_code,
+                    response.text,
+                )
             response.raise_for_status()
             return response.json()
