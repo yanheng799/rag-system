@@ -227,17 +227,59 @@ def reorder_elements_for_layout(
     """根据排版格式重排元素阅读顺序。
 
     单栏：按 (y, x) 排序（默认）
-    双栏：左列从上到下，然后右列从上到下
+    双栏：左列从上到下，然后右列从上到下，全宽元素按 y 插入正确位置
     """
     if layout != "double" or page_width <= 0:
         return elements
 
     mid = page_width / 2
+    full_width_threshold = page_width * 0.8
 
-    left = [e for e in elements if e.bbox[0] < mid]
-    right = [e for e in elements if e.bbox[0] >= mid]
+    # 分离全宽元素（表格等跨越双栏的元素）和普通元素
+    full_width = [e for e in elements if (e.bbox[2] - e.bbox[0]) >= full_width_threshold]
+    normal = [e for e in elements if (e.bbox[2] - e.bbox[0]) < full_width_threshold]
 
-    left.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
-    right.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
+    left = sorted([e for e in normal if e.bbox[0] < mid], key=lambda e: (e.bbox[1], e.bbox[0]))
+    right = sorted([e for e in normal if e.bbox[0] >= mid], key=lambda e: (e.bbox[1], e.bbox[0]))
 
-    return left + right
+    if not full_width:
+        return left + right
+
+    # 将全宽元素按 y 坐标与左右列元素交错插入
+    return _interleave_full_width(left, right, full_width)
+
+
+def _interleave_full_width(
+    left: list[ParsedElement],
+    right: list[ParsedElement],
+    full_width: list[ParsedElement],
+) -> list[ParsedElement]:
+    """将全宽元素按 y 坐标插入左右列元素序列的正确位置。
+
+    阅读顺序：左列元素(全宽y以下) → 全宽元素 → 右列元素(全宽y以下) → ...
+    """
+    full_width.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
+
+    result: list[ParsedElement] = []
+    fw_idx = 0
+
+    for fw_elem in full_width:
+        fw_y = fw_elem.bbox[1]
+
+        # 取出左列中 y < 全宽元素 y 的部分
+        remaining_left = []
+        while left and left[0].bbox[1] < fw_y:
+            result.append(left.pop(0))
+
+        # 取出右列中 y < 全宽元素 y 的部分
+        while right and right[0].bbox[1] < fw_y:
+            result.append(right.pop(0))
+
+        # 插入全宽元素
+        result.append(fw_elem)
+
+    # 追加剩余的左右列元素
+    result.extend(left)
+    result.extend(right)
+
+    return result

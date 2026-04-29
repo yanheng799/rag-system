@@ -42,6 +42,7 @@ class ChunkMetadata:
     char_count: int  # full_text 字符数
     created_at: str  # 摄入时间，ISO 8601 格式
     doc_id: str  # 所属文档 ID
+    pages: list[int] = field(default_factory=list)  # 所涉全部页码（跨页时多项）
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +54,7 @@ class ChunkMetadata:
             "char_count": self.char_count,
             "created_at": self.created_at,
             "doc_id": self.doc_id,
+            "pages": self.pages,
         }
 
     @classmethod
@@ -66,6 +68,7 @@ class ChunkMetadata:
             char_count=data["char_count"],
             created_at=data["created_at"],
             doc_id=data["doc_id"],
+            pages=data.get("pages", []),
         )
 
 

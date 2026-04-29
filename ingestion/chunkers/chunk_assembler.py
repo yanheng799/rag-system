@@ -95,6 +95,7 @@ class ChunkBuilder:
         full_text = "\n".join(text_parts)
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        all_pages = sorted(set(e.page for e in elements))
         metadata = ChunkMetadata(
             chunk_id=f"{doc_id}_p{page}_c{chunk_index}",
             chunk_type=chunk_type,
@@ -104,6 +105,7 @@ class ChunkBuilder:
             char_count=len(full_text),
             created_at=now,
             doc_id=doc_id,
+            pages=all_pages,
         )
 
         return MixedChunk(

@@ -30,13 +30,25 @@ class PDFParser(BaseParser):
 
         hf_zones = detect_header_footer_zones(doc)
         elements: list[ParsedElement] = []
+        page_sizes: dict[int, tuple[float, float]] = {}
 
         for page_num in range(len(doc)):
             page = doc[page_num]
+            page_sizes[page_num] = (page.rect.width, page.rect.height)
             layout = detect_page_layout(page)
             elements.extend(self._parse_page(page, page_num, layout, hf_zones))
 
         doc.close()
+
+        # 后处理：跨页/跨列表格合并
+        from ingestion.chunkers.merge_cross_page import (
+            merge_cross_column_tables,
+            merge_cross_page_tables,
+        )
+
+        elements = merge_cross_page_tables(elements, page_sizes)
+        elements = merge_cross_column_tables(elements, page_sizes)
+
         logger.info("PDF 解析完成: %s, 共 %d 个元素", file_path, len(elements))
         return elements
 

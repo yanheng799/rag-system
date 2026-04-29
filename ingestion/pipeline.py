@@ -82,10 +82,20 @@ class IngestionPipeline:
                 return
 
             # 4. 段落边界识别
+            page_sizes: dict[int, tuple[float, float]] = {}
+            if file_type == "pdf":
+                import fitz
+
+                pdf_doc = fitz.open(file_path)
+                for pn in range(len(pdf_doc)):
+                    page_sizes[pn] = (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height)
+                pdf_doc.close()
+
             paragraphs = group_elements_by_paragraph(
                 elements,
                 vertical_gap_threshold=settings.chunk_vertical_gap,
                 max_chunk_size=settings.chunk_max_size,
+                page_sizes=page_sizes,
             )
             logger.info("段落聚合完成: %d 个段落组", len(paragraphs))
 
@@ -138,6 +148,7 @@ class IngestionPipeline:
                     "chunk_index": chunk.metadata.chunk_index,
                     "char_count": chunk.metadata.char_count,
                     "created_at": chunk.metadata.created_at,
+                    "pages": chunk.metadata.pages,
                 })
             self._vector_store.insert(milvus_records)
             logger.info("Milvus 写入完成: %d 条向量记录", len(milvus_records))

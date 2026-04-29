@@ -414,3 +414,227 @@ class TestDetectChunkType:
             ParsedElement(elem_type="table", content="表格", page=0),
         ]
         assert detect_chunk_type(elements) == "mixed"
+
+
+from ingestion.chunkers.merge_cross_page import (
+    merge_cross_column_tables,
+    merge_cross_page_tables,
+)
+
+
+class TestFullWidthTable:
+    """全宽表格在双栏重排中的处理"""
+
+    def test_full_width_table_not_split(self):
+        """全宽表格应保持完整，不被分入左/右列"""
+        elements = [
+            ParsedElement(elem_type="text", content="左1", page=0, bbox=(100, 100, 300, 110)),
+            ParsedElement(elem_type="table", content="表格", page=0, bbox=(50, 120, 1140, 200)),
+            ParsedElement(elem_type="text", content="右1", page=0, bbox=(600, 100, 800, 110)),
+        ]
+        result = reorder_elements_for_layout(elements, 1191, "double")
+        # 全宽表格宽度 1090 >= 1191 * 0.8 = 953，应被识别为全宽
+        assert len(result) == 3
+        # 全宽表格应在左1和右1之后（y=120 > 左1/右1 的 y=100）
+        table_idx = next(i for i, e in enumerate(result) if e.content == "表格")
+        left_idx = next(i for i, e in enumerate(result) if e.content == "左1")
+        right_idx = next(i for i, e in enumerate(result) if e.content == "右1")
+        assert table_idx > left_idx
+        assert table_idx > right_idx
+
+    def test_narrow_table_goes_to_column(self):
+        """窄表格应正常分入左/右列"""
+        elements = [
+            ParsedElement(elem_type="table", content="窄表", page=0, bbox=(100, 100, 400, 150)),
+        ]
+        result = reorder_elements_for_layout(elements, 1191, "double")
+        # 宽度 300 < 1191 * 0.8，应正常处理
+        assert len(result) == 1
+
+    def test_full_width_between_columns(self):
+        """全宽元素在左右列元素之间按 y 排序"""
+        elements = [
+            ParsedElement(elem_type="text", content="左上", page=0, bbox=(100, 50, 300, 60)),
+            ParsedElement(elem_type="text", content="右上", page=0, bbox=(600, 50, 800, 60)),
+            ParsedElement(elem_type="table", content="全宽表", page=0, bbox=(50, 100, 1140, 200)),
+            ParsedElement(elem_type="text", content="左下", page=0, bbox=(100, 250, 300, 260)),
+            ParsedElement(elem_type="text", content="右下", page=0, bbox=(600, 250, 800, 260)),
+        ]
+        result = reorder_elements_for_layout(elements, 1191, "double")
+        contents = [e.content for e in result]
+        # 全宽表应在左上/右上之后、左下/右下之前
+        fw_idx = contents.index("全宽表")
+        assert contents.index("左上") < fw_idx
+        assert contents.index("右上") < fw_idx
+        assert contents.index("左下") > fw_idx
+        assert contents.index("右下") > fw_idx
+
+
+class TestMergeCrossPage:
+    """跨页表格合并测试"""
+
+    def _make_md_table(self, headers: list[str], rows: list[list[str]]) -> str:
+        """生成 Markdown 表格"""
+        lines = ["| " + " | ".join(headers) + " |"]
+        lines.append("|" + "|".join("---" for _ in headers) + "|")
+        for row in rows:
+            lines.append("| " + " | ".join(row) + " |")
+        return "\n".join(lines)
+
+    def test_cross_page_tables_merged(self):
+        """跨页表格应合并为一个元素"""
+        table_a = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B"], [["1", "2"], ["3", "4"]]),
+            page=0,
+            bbox=(50, 700, 500, 842),
+        )
+        table_b = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B"], [["5", "6"], ["7", "8"]]),
+            page=1,
+            bbox=(50, 0, 500, 100),
+        )
+        page_sizes = {0: (595, 842), 1: (595, 842)}
+        result = merge_cross_page_tables([table_a, table_b], page_sizes)
+        assert len(result) == 1
+        # 合并后应包含 4 行数据（不含表头）
+        data_lines = [l for l in result[0].content.split("\n") if l.strip().startswith("|") and "---" not in l]
+        # 1 表头行 + 4 数据行 = 5 行
+        assert len(data_lines) == 5
+
+    def test_non_adjacent_pages_not_merged(self):
+        """不相邻页的表格不应合并"""
+        table_a = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["1"]]),
+            page=0,
+            bbox=(50, 700, 500, 842),
+        )
+        table_b = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["2"]]),
+            page=2,
+            bbox=(50, 0, 500, 100),
+        )
+        page_sizes = {0: (595, 842), 1: (595, 842), 2: (595, 842)}
+        result = merge_cross_page_tables([table_a, table_b], page_sizes)
+        assert len(result) == 2
+
+    def test_different_columns_not_merged(self):
+        """列数不同的表格不应合并"""
+        table_a = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B"], [["1", "2"]]),
+            page=0,
+            bbox=(50, 700, 500, 842),
+        )
+        table_b = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B", "C"], [["3", "4", "5"]]),
+            page=1,
+            bbox=(50, 0, 500, 100),
+        )
+        page_sizes = {0: (595, 842), 1: (595, 842)}
+        result = merge_cross_page_tables([table_a, table_b], page_sizes)
+        assert len(result) == 2
+
+    def test_table_not_at_page_edge_not_merged(self):
+        """不在页面边缘的表格不应合并"""
+        table_a = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["1"]]),
+            page=0,
+            bbox=(50, 200, 500, 400),
+        )
+        table_b = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["2"]]),
+            page=1,
+            bbox=(50, 0, 500, 100),
+        )
+        page_sizes = {0: (595, 842), 1: (595, 842)}
+        result = merge_cross_page_tables([table_a, table_b], page_sizes)
+        assert len(result) == 2
+
+
+class TestMergeCrossColumn:
+    """跨列表格合并测试"""
+
+    def _make_md_table(self, headers: list[str], rows: list[list[str]]) -> str:
+        lines = ["| " + " | ".join(headers) + " |"]
+        lines.append("|" + "|".join("---" for _ in headers) + "|")
+        for row in rows:
+            lines.append("| " + " | ".join(row) + " |")
+        return "\n".join(lines)
+
+    def test_cross_column_tables_merged(self):
+        """同页左右两个表格应合并"""
+        table_left = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B"], [["1", "2"]]),
+            page=0,
+            bbox=(50, 100, 400, 200),
+        )
+        table_right = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A", "B"], [["3", "4"]]),
+            page=0,
+            bbox=(450, 100, 800, 200),
+        )
+        page_sizes = {0: (842, 595)}
+        result = merge_cross_column_tables([table_left, table_right], page_sizes)
+        assert len(result) == 1
+
+    def test_different_y_not_merged(self):
+        """y 坐标差距大的表格不应合并"""
+        table_left = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["1"]]),
+            page=0,
+            bbox=(50, 100, 400, 200),
+        )
+        table_right = ParsedElement(
+            elem_type="table",
+            content=self._make_md_table(["A"], [["2"]]),
+            page=0,
+            bbox=(450, 500, 800, 600),
+        )
+        page_sizes = {0: (842, 595)}
+        result = merge_cross_column_tables([table_left, table_right], page_sizes)
+        assert len(result) == 2
+
+
+class TestCrossPageParagraph:
+    """跨页段落合并测试"""
+
+    def test_page_continuation_merged(self):
+        """页底→页顶的连续文本应合并"""
+        elements = [
+            ParsedElement(elem_type="text", content="页底文字", page=0, bbox=(0, 780, 100, 842)),
+            ParsedElement(elem_type="text", content="页顶续文", page=1, bbox=(0, 0, 100, 50)),
+        ]
+        page_sizes = {0: (595, 842), 1: (595, 842)}
+        result = group_elements_by_paragraph(elements, max_chunk_size=0, page_sizes=page_sizes)
+        assert len(result) == 1
+        assert result[0][0].content == "页底文字"
+        assert result[0][1].content == "页顶续文"
+
+    def test_table_across_page_still_split(self):
+        """表格跨页仍应拆分"""
+        elements = [
+            ParsedElement(elem_type="table", content="表格", page=0, bbox=(0, 780, 100, 842)),
+            ParsedElement(elem_type="text", content="续文", page=1, bbox=(0, 0, 100, 50)),
+        ]
+        page_sizes = {0: (595, 842), 1: (595, 842)}
+        result = group_elements_by_paragraph(elements, max_chunk_size=0, page_sizes=page_sizes)
+        assert len(result) == 2
+
+    def test_without_page_sizes_still_split(self):
+        """没有 page_sizes 时仍按原逻辑拆分"""
+        elements = [
+            ParsedElement(elem_type="text", content="页底文字", page=0, bbox=(0, 780, 100, 842)),
+            ParsedElement(elem_type="text", content="页顶续文", page=1, bbox=(0, 0, 100, 50)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=0)
+        assert len(result) == 2

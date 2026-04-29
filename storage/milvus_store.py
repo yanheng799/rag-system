@@ -57,6 +57,7 @@ class MilvusStore(VectorStorePort):
             FieldSchema("chunk_index", DataType.INT32),
             FieldSchema("char_count", DataType.INT32),
             FieldSchema("created_at", DataType.VARCHAR, max_length=32),
+            FieldSchema("pages", DataType.VARCHAR, max_length=256),
         ]
         return CollectionSchema(fields=fields, description="RAG 分块向量索引")
 
@@ -109,6 +110,7 @@ class MilvusStore(VectorStorePort):
                 "chunk_index": r["chunk_index"],
                 "char_count": r["char_count"],
                 "created_at": r["created_at"],
+                "pages": json.dumps(r.get("pages", [r["page"]]), ensure_ascii=False),
             }
             for r in records
         ]
@@ -148,7 +150,7 @@ class MilvusStore(VectorStorePort):
             output_fields=[
                 "chunk_id", "doc_id", "full_text", "chunk_type",
                 "elements", "image_urls", "source", "page",
-                "chunk_index", "char_count", "created_at",
+                "chunk_index", "char_count", "created_at", "pages",
             ],
         )
 
@@ -168,6 +170,7 @@ class MilvusStore(VectorStorePort):
                 "chunk_index": hit.entity.get("chunk_index"),
                 "char_count": hit.entity.get("char_count"),
                 "created_at": hit.entity.get("created_at"),
+                "pages": json.loads(hit.entity.get("pages", "[]")),
             }
             hits.append(record)
         return hits

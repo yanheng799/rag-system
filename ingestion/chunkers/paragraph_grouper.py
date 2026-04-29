@@ -26,13 +26,14 @@ def is_new_paragraph_boundary(
     elem: ParsedElement,
     group: list[ParsedElement],
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
+    page_sizes: dict[int, tuple[float, float]] | None = None,
 ) -> bool:
     """
     判断当前元素是否为新段落边界。
 
     规则：
     1. 当前 group 为空 → 新段落
-    2. 跨页 → 新段落
+    2. 跨页 → 如果是页底→页顶的连续文本则不拆分，否则新段落
     3. 垂直间距 > 阈值 且 前一个元素不是标题 → 新段落
     4. 标题元素不触发新边界（标题与下方内容合并）
     """
@@ -43,6 +44,13 @@ def is_new_paragraph_boundary(
 
     # 跨页判断
     if elem.page != last.page:
+        if (
+            page_sizes
+            and not elem.is_table
+            and not last.is_table
+            and _is_page_continuation(last, elem, page_sizes)
+        ):
+            return False
         return True
 
     # 垂直间距判断
@@ -60,6 +68,7 @@ def group_elements_by_paragraph(
     elements: list[ParsedElement],
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
     max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+    page_sizes: dict[int, tuple[float, float]] | None = None,
 ) -> list[list[ParsedElement]]:
     """
     将扁平 Element 列表按段落边界聚合为段落组。
@@ -76,7 +85,7 @@ def group_elements_by_paragraph(
     current_group: list[ParsedElement] = []
 
     for elem in elements:
-        if is_new_paragraph_boundary(elem, current_group, vertical_gap_threshold):
+        if is_new_paragraph_boundary(elem, current_group, vertical_gap_threshold, page_sizes):
             if current_group:
                 paragraphs.append(current_group)
             current_group = [elem]
@@ -162,6 +171,31 @@ def _split_group_by_size(
             sub_groups.append(current)
 
     return sub_groups
+
+
+def _is_page_continuation(
+    last: ParsedElement,
+    elem: ParsedElement,
+    page_sizes: dict[int, tuple[float, float]],
+) -> bool:
+    """判断跨页元素是否为连续段落（页底→页顶）。"""
+    size_last = page_sizes.get(last.page)
+    size_elem = page_sizes.get(elem.page)
+    if not size_last or not size_elem:
+        return False
+
+    _, height_last = size_last
+    _, height_elem = size_elem
+
+    # 前一个元素在页底（y1 > 页面高度 × 0.85）
+    if last.bbox[3] < height_last * 0.85:
+        return False
+
+    # 当前元素在页顶（y0 < 页面高度 × 0.15）
+    if elem.bbox[1] > height_elem * 0.15:
+        return False
+
+    return True
 
 
 def _calculate_vertical_gap(elem_a: ParsedElement, elem_b: ParsedElement) -> float:
