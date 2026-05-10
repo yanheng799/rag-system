@@ -54,7 +54,7 @@ def is_new_paragraph_boundary(
             if (
                 page_sizes
                 and not elem.is_table
-                and elem.bbox[1] < page_sizes.get(elem.page, (0, 9999))[1] * 0.25
+                and elem.bbox[1] < page_sizes.get(elem.page, (0, 9999))[1] * 0.40
             ):
                 return False
         # 常规跨页续接
