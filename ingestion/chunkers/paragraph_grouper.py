@@ -48,6 +48,16 @@ def is_new_paragraph_boundary(
 
     # 跨页判断
     if elem.page != last.page:
+        # 当前 group 以章节标题开头 → 放宽续接条件，标题内容应保持完整
+        first = group[0]
+        if is_section_heading(first.content):
+            if (
+                page_sizes
+                and not elem.is_table
+                and elem.bbox[1] < page_sizes.get(elem.page, (0, 9999))[1] * 0.25
+            ):
+                return False
+        # 常规跨页续接
         if (
             page_sizes
             and not elem.is_table

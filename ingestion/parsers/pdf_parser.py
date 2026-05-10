@@ -225,12 +225,17 @@ class PDFParser(BaseParser):
         return "text"
 
     def _is_page_number(self, text: str, bbox: tuple, page_height: float) -> bool:
-        """判断文本是否为页码（页面边缘区域的独立短数字）"""
-        if not text.isdigit() or len(text) > 3:
-            return False
+        """判断文本是否为页码（页面边缘区域的独立短数字或 N / M 格式）"""
         y0 = bbox[1]
         # 页码通常在顶部 8% 或底部 10%
-        if y0 < page_height * 0.08 or y0 > page_height * 0.90:
+        if not (y0 < page_height * 0.08 or y0 > page_height * 0.90):
+            return False
+        # 纯数字页码
+        if text.isdigit() and len(text) <= 3:
+            return True
+        # "N / M" 格式页码（如 "6 / 21"）
+        import re
+        if re.match(r"^\d+\s*/\s*\d+$", text):
             return True
         return False
 
