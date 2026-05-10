@@ -10,7 +10,6 @@ from api.schemas.debug import (
     DebugChunk,
     DebugChunkMetadata,
     DebugChunkScores,
-    ElementSchema,
     RetrieveRequest,
     RetrieveResponse,
 )
@@ -54,13 +53,6 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
     for idx, chunk in enumerate(chunks, 1):
         metadata = DebugChunkMetadata(**chunk.metadata.to_dict())
 
-        elements = []
-        for e in chunk.elements:
-            image_url = e.image_url
-            if image_url and signed_url_service:
-                image_url = signed_url_service.sign(image_url)
-            elements.append(ElementSchema(type=e.type, content=e.content, image_url=image_url))
-
         image_urls = []
         for url in chunk.image_urls:
             if signed_url_service:
@@ -74,7 +66,6 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
                 metadata=metadata,
                 full_text=chunk.full_text,
                 scores=DebugChunkScores(vector_score=chunk.score),
-                elements=elements,
                 image_urls=image_urls,
             )
         )

@@ -12,12 +12,6 @@ class RetrieveRequest(BaseModel):
     show_prompt: bool = False
 
 
-class ElementSchema(BaseModel):
-    type: str  # "text" | "table" | "image"
-    content: str
-    image_url: Optional[str] = None
-
-
 class DebugChunkMetadata(BaseModel):
     chunk_id: str
     chunk_type: str
@@ -39,7 +33,6 @@ class DebugChunk(BaseModel):
     metadata: DebugChunkMetadata
     full_text: str
     scores: DebugChunkScores
-    elements: list[ElementSchema]
     image_urls: list[str] = []
 
 
