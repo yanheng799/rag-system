@@ -116,12 +116,47 @@ def group_elements_by_paragraph(
         len(paragraphs),
     )
 
+    # 阶段 1.5：孤立标题合并到下一个 group
+    paragraphs = _merge_heading_only_groups(paragraphs)
+
     # 阶段 2：超长分组拆分
     if max_chunk_size > 0:
         paragraphs = _split_oversized_groups(paragraphs, max_chunk_size)
         logger.info("超长拆分后: %d 个段落组", len(paragraphs))
 
     return paragraphs
+
+
+def _merge_heading_only_groups(
+    paragraphs: list[list[ParsedElement]],
+) -> list[list[ParsedElement]]:
+    """将只含标题（无实质内容）的 group 合并到下一个 group。"""
+    if len(paragraphs) <= 1:
+        return paragraphs
+
+    merged: list[list[ParsedElement]] = []
+    i = 0
+    while i < len(paragraphs):
+        group = paragraphs[i]
+        total_chars = sum(len(e.content) for e in group)
+
+        # 孤立标题：总字符少，且只有标题+图片元素
+        if total_chars < 40 and i + 1 < len(paragraphs):
+            has_content = any(
+                not is_section_heading(e.content) and not e.is_image
+                for e in group
+                if e.content.strip()
+            )
+            if not has_content:
+                # 合并到下一个 group
+                paragraphs[i + 1] = group + paragraphs[i + 1]
+                i += 1
+                continue
+
+        merged.append(group)
+        i += 1
+
+    return merged
 
 
 def _split_oversized_groups(
