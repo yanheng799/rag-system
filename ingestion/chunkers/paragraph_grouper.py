@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from ingestion.chunkers.heading_patterns import is_heading_by_pattern
+from ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_section_heading
 from ingestion.parsers.base import ParsedElement
 
 logger = logging.getLogger(__name__)
@@ -33,11 +33,15 @@ def is_new_paragraph_boundary(
 
     规则：
     1. 当前 group 为空 → 新段落
-    2. 跨页 → 如果是页底→页顶的连续文本则不拆分，否则新段落
-    3. 垂直间距 > 阈值 且 前一个元素不是标题 → 新段落
-    4. 标题元素不触发新边界（标题与下方内容合并）
+    2. 标题元素始终触发新边界（按标题分片）
+    3. 跨页 → 如果是页底→页顶的连续文本则不拆分，否则新段落
+    4. 垂直间距 > 阈值 且 前一个元素不是标题 → 新段落
     """
     if not group:
+        return True
+
+    # 章节标题始终开始新段落（标题吸收下方内容，但不合并到上一个段落）
+    if is_section_heading(elem.content):
         return True
 
     last = group[-1]

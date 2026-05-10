@@ -41,3 +41,34 @@ def is_heading_combined(text: str, font_size: float, is_bold: bool) -> bool:
         return True
     # 正则判断
     return is_heading_by_pattern(text)
+
+
+# 章节标题正则 — 仅匹配真正的章节编号格式，排除正文列表项
+_SECTION_HEADING_PATTERNS: list[re.Pattern] = [
+    # 三级编号: 1.3.1, 2.2.1 等
+    re.compile(r"^\d+\.\d+\.\d+\s+\S"),
+    # 二级编号: 1.1, 2.3 等
+    re.compile(r"^\d+\.\d+\s+\S"),
+    # 中文章标题: 一、二、三、等
+    re.compile(r"^[一二三四五六七八九十]+、\s*\S"),
+    # 第X章/节/篇/部分
+    re.compile(r"^第[一二三四五六七八九十百千\d]+[章节篇部分]\s"),
+    # 英文章节
+    re.compile(r"(?i)^chapter\s+\d+"),
+    re.compile(r"(?i)^section\s+\d+"),
+    re.compile(r"(?i)^part\s+[IVXLCDM\d]+"),
+]
+
+_MAX_SECTION_HEADING_LENGTH = 60
+
+
+def is_section_heading(text: str) -> bool:
+    """判断是否为章节标题（用于分片边界识别）。
+
+    比 is_heading_by_pattern 更严格：只匹配带编号的章节标题格式，
+    不匹配 "1、"、"3）" 等列表项，也不匹配纯样式上的加粗文本。
+    """
+    text = text.strip()
+    if not text or len(text) > _MAX_SECTION_HEADING_LENGTH:
+        return False
+    return any(pat.match(text) for pat in _SECTION_HEADING_PATTERNS)
