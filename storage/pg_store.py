@@ -30,6 +30,7 @@ class PgStore(DocumentStorePort):
         async with self._session_factory() as session:
             orm = DocumentORM(
                 doc_id=doc.doc_id,
+                content_hash=doc.content_hash,
                 filename=doc.filename,
                 raw_file_url=doc.raw_file_url,
                 file_size=doc.file_size,
@@ -62,6 +63,7 @@ class PgStore(DocumentStorePort):
                 return None
             return DocumentRecord(
                 doc_id=orm.doc_id,
+                content_hash=orm.content_hash,
                 filename=orm.filename,
                 raw_file_url=orm.raw_file_url,
                 file_size=orm.file_size,
@@ -73,6 +75,48 @@ class PgStore(DocumentStorePort):
                 uploaded_at=orm.uploaded_at,
                 updated_at=orm.updated_at,
             )
+
+    async def get_document_by_hash(self, content_hash: str) -> Optional[DocumentRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(DocumentORM).where(DocumentORM.content_hash == content_hash)
+            )
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return DocumentRecord(
+                doc_id=orm.doc_id,
+                content_hash=orm.content_hash,
+                filename=orm.filename,
+                raw_file_url=orm.raw_file_url,
+                file_size=orm.file_size,
+                file_type=orm.file_type,
+                status=orm.status,
+                error_msg=orm.error_msg,
+                retry_count=orm.retry_count,
+                created_by=orm.created_by,
+                uploaded_at=orm.uploaded_at,
+                updated_at=orm.updated_at,
+            )
+
+    async def update_document_for_reingest(
+        self, doc_id: str, filename: str, file_size: int, raw_file_url: str
+    ) -> None:
+        """重置文档记录以重新摄入：更新文件信息，重置状态"""
+        async with self._session_factory() as session:
+            stmt = (
+                update(DocumentORM)
+                .where(DocumentORM.doc_id == doc_id)
+                .values(
+                    filename=filename,
+                    file_size=file_size,
+                    raw_file_url=raw_file_url,
+                    status="pending",
+                    error_msg=None,
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     async def list_documents(
         self, page: int = 1, size: int = 20
@@ -95,6 +139,7 @@ class PgStore(DocumentStorePort):
             records = [
                 DocumentRecord(
                     doc_id=r.doc_id,
+                    content_hash=r.content_hash,
                     filename=r.filename,
                     raw_file_url=r.raw_file_url,
                     file_size=r.file_size,

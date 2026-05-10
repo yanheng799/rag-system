@@ -24,6 +24,7 @@ class DocumentORM(Base):
     __tablename__ = "rag_documents"
 
     doc_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     raw_file_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     file_size: Mapped[int | None] = mapped_column(BigInteger)

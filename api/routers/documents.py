@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-import uuid
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 
@@ -13,12 +13,17 @@ from ingestion.pipeline import generate_doc_id
 router = APIRouter(prefix="/api/v1/documents", tags=["文档管理"])
 
 
+def _compute_content_hash(data: bytes) -> str:
+    """计算文件内容的 SHA-256 哈希"""
+    return hashlib.sha256(data).hexdigest()
+
+
 @router.post("", response_model=UploadResponse, summary="上传文档")
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
 ):
-    """上传文档，触发同步摄入流程"""
+    """上传文档，触发同步摄入流程。相同文件重复上传会覆盖旧数据。"""
     # 验证文件类型
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -39,7 +44,52 @@ async def upload_document(
             detail=f"文件过大，最大支持 {settings.max_file_size_mb}MB",
         )
 
-    doc_id = generate_doc_id()
+    # 计算文件内容哈希，用于去重
+    content_hash = _compute_content_hash(file_data)
+
+    # 获取存储组件
+    pg_store = request.app.state.pg_store
+    oss_store = request.app.state.oss_store
+    milvus_store = request.app.state.milvus_store
+
+    # 检查是否已有相同文件
+    existing_doc = await pg_store.get_document_by_hash(content_hash)
+
+    if existing_doc:
+        # 相同文件已存在 → 覆盖旧数据
+        doc_id = existing_doc.doc_id
+        logger_msg = "重复上传，覆盖旧数据: doc_id=%s"
+
+        # 清除旧的向量数据
+        milvus_store.delete_by_doc_id(doc_id)
+
+        # 清除旧的分块记录
+        await pg_store.delete_chunks_by_doc(doc_id)
+
+        # 重置文档记录状态
+        raw_file_url = f"raw-docs/{doc_id}/{filename}"
+        await pg_store.update_document_for_reingest(
+            doc_id=doc_id,
+            filename=filename,
+            file_size=len(file_data),
+            raw_file_url=raw_file_url,
+        )
+    else:
+        # 新文件 → 创建新记录
+        doc_id = generate_doc_id()
+        logger_msg = "新文档上传: doc_id=%s"
+
+        from models.documents import DocumentRecord
+
+        doc_record = DocumentRecord(
+            doc_id=doc_id,
+            content_hash=content_hash,
+            filename=filename,
+            raw_file_url=f"raw-docs/{doc_id}/{filename}",
+            file_size=len(file_data),
+            file_type=ext,
+        )
+        await pg_store.save_document(doc_record)
 
     # 保存临时文件
     from config.settings import settings as s
@@ -50,24 +100,12 @@ async def upload_document(
     with open(tmp_path, "wb") as f:
         f.write(file_data)
 
-    # 创建文档记录
-    from models.documents import DocumentRecord
-
-    doc_record = DocumentRecord(
-        doc_id=doc_id,
-        filename=filename,
-        raw_file_url=f"raw-docs/{doc_id}/{filename}",
-        file_size=len(file_data),
-        file_type=ext,
-    )
-
-    # 获取存储组件
-    pg_store = request.app.state.pg_store
-    oss_store = request.app.state.oss_store
-    milvus_store = request.app.state.milvus_store
-
+    # 执行摄入
     from ingestion.embedder import Embedder
     from ingestion.pipeline import IngestionPipeline
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     embedder = Embedder()
     pipeline = IngestionPipeline(
@@ -77,21 +115,16 @@ async def upload_document(
         embedder=embedder,
     )
 
-    # 保存文档记录
-    await pg_store.save_document(doc_record)
-
-    # 执行摄入
     from datetime import datetime, timezone
 
     uploaded_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         await pipeline.ingest(doc_id, tmp_path, ext)
-    except Exception as e:
-        # 摄入失败已在 pipeline 内部处理状态更新
+        logger.info(logger_msg, doc_id)
+    except Exception:
         pass
     finally:
-        # 清理临时文件
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 

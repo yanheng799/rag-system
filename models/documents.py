@@ -14,6 +14,7 @@ class DocumentRecord:
     doc_id: str
     filename: str
     raw_file_url: str
+    content_hash: Optional[str] = None
     file_size: Optional[int] = None
     file_type: Optional[str] = None  # pdf | docx | xlsx
     status: str = "pending"  # pending | processing | done | failed

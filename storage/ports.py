@@ -52,6 +52,16 @@ class DocumentStorePort(ABC):
         """查询文档记录"""
 
     @abstractmethod
+    async def get_document_by_hash(self, content_hash: str) -> Optional[DocumentRecord]:
+        """按文件内容哈希查询文档记录"""
+
+    @abstractmethod
+    async def update_document_for_reingest(
+        self, doc_id: str, filename: str, file_size: int, raw_file_url: str
+    ) -> None:
+        """重置文档记录以重新摄入"""
+
+    @abstractmethod
     async def list_documents(
         self, page: int = 1, size: int = 20
     ) -> tuple[list[DocumentRecord], int]:
