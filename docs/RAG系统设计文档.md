@@ -1,6 +1,6 @@
 # RAG 系统整体设计文档
 
-> 版本：v1.5 | 状态：Phase 1 开发中
+> 版本：v1.6 | 状态：Phase 1 开发中
 
 ---
 
@@ -24,6 +24,7 @@
 - 元数据提取：来源、时间、作者、章节等自动提取
 - Phase 1 同步摄入，Phase 4 引入 Celery 异步任务队列，支持失败自动重试（最多 3 次），超限后进入死信队列并告警
 - **混合块支持**：同一段落内的文字与表格作为一个整体分块，召回时文字描述与表格截图一并返回
+- **文档图片提取**：提取 PDF/Word 文档中内嵌的图片（施工图、示意图、设备照片等），上传至对象存储，作为上下文补充返回给用户
 - **增量更新**：文档内容变化时，仅删除该文档的旧向量和分块记录，重新摄入生成新索引，无需重建全量索引
 
 ### 2.2 检索能力
@@ -76,7 +77,7 @@
 
 #### 3.2.1 段落边界识别与混合块组装
 
-解析器输出的是扁平的 Element 列表（文字、表格交替），需要先按语义段落边界聚合，再组装为统一的 Chunk 结构。
+解析器输出的是扁平的 Element 列表（文字、表格、图片交替），需要先按语义段落边界聚合，再组装为统一的 Chunk 结构。
 
 ```
 原始文档段落示例：
@@ -104,7 +105,7 @@ def group_elements_by_paragraph(elements):
                 paragraphs.append(current_group)
             current_group = [elem]
         else:
-            current_group.append(elem)  # 文字和表格都加入当前段落组
+            current_group.append(elem)  # 文字、表格、图片都加入当前段落组
     return paragraphs
 ```
 
@@ -114,7 +115,7 @@ def group_elements_by_paragraph(elements):
 原始文档（PDF / Word）
         │
         ▼
-[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表（文字、表格交替）
+[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表（文字、表格、图片交替）
         │
         ▼
 [段落边界识别]  →  按坐标 + 语义将 Elements 聚合为段落组
@@ -128,11 +129,12 @@ def group_elements_by_paragraph(elements):
         │                                                     │
         └── 混合段落    ──▶ [逐元素处理]                       │
                                │                             │
-                    ┌──────────┴──────────┐                  │
-                    ▼                     ▼                  │
-              文字元素                 表格元素               │
-              直接保留 content         截图 → OSS → image_url │
-                                       生成语义描述 → content │
+                    ┌──────────┼──────────┐                  │
+                    ▼          ▼          ▼                  │
+              文字元素     表格元素     图片元素               │
+              直接保留     截图→OSS    提取→OSS               │
+              content     语义描述    占位文本                 │
+                          →content   →content                │
                     └──────────┬──────────┘                  │
                                ▼                             │
                       [组装 MixedChunk]                      │
@@ -156,14 +158,14 @@ def group_elements_by_paragraph(elements):
 ```python
 @dataclass
 class ContentElement:
-    type:      str        # "text" | "table"
-    content:   str        # 文字原文 或 表格语义描述（送入 LLM）
-    image_url: str | None # 仅 table 有值，文字元素为 None
+    type:      str        # "text" | "table" | "image"
+    content:   str        # 文字原文 / 表格语义描述 / 图片占位文本（送入 LLM）
+    image_url: str | None # table 和 image 有值，文字元素为 None
 
 @dataclass
 class ChunkMetadata:
     chunk_id:    str       # 全局唯一 ID，格式：{doc_id}_p{page}_c{index}
-    chunk_type:  str       # "text" | "table" | "mixed"
+    chunk_type:  str       # "text" | "table" | "mixed" | "image"
     source:      str       # 原始文档文件名
     page:        int       # 所在页码
     chunk_index: int       # 该页第几个分块（从 0 起）
@@ -176,7 +178,7 @@ class MixedChunk:
     metadata:   ChunkMetadata
     elements:   list[ContentElement]  # 段落内有序子元素，保持原文顺序
     full_text:  str                   # 所有 content 拼接，用于向量化
-    image_urls: list[str]             # 段落内所有表格截图 URL 的快速索引
+    image_urls: list[str]             # 段落内所有图片/表格截图 URL 的快速索引
 ```
 
 **实例**：
@@ -202,7 +204,12 @@ MixedChunk(
         ContentElement(
             type      = "table",
             content   = "表格：华东目标111万实际120万，华南目标95万实际98万……",
-            image_url = "https://oss.example.com/tables/doc_001_p3_t1.png"
+            image_url = "table-images/doc_001_p3_t1.png"
+        ),
+        ContentElement(
+            type      = "image",
+            content   = "[图片: 施工现场总平面布置图]",
+            image_url = "doc-images/doc_001_p3_img1.png"
         ),
         ContentElement(
             type      = "text",
@@ -210,8 +217,8 @@ MixedChunk(
             image_url = None
         ),
     ],
-    full_text  = "Q1各区域完成情况如下：表格：华东目标111万实际120万……其中华东区超额完成8%……",
-    image_urls = ["https://oss.example.com/tables/doc_001_p3_t1.png"]
+    full_text  = "Q1各区域完成情况如下：表格：华东目标111万实际120万……[图片: 施工现场总平面布置图]其中华东区超额完成8%……",
+    image_urls = ["table-images/doc_001_p3_t1.png", "doc-images/doc_001_p3_img1.png"]
 )
 ```
 
@@ -223,7 +230,7 @@ MixedChunk(
 |----------|------|---------|
 | 向量数据库 | Milvus | Embedding 向量 + elements/metadata JSON |
 | 文档数据库 | PostgreSQL | 文档管理信息、完整分块记录、查询日志 |
-| 对象存储 | MinIO / S3 | **原始文档文件**（PDF、Word、Excel 原件）+ 表格截图 |
+| 对象存储 | MinIO / S3 | **原始文档文件**（PDF、Word、Excel 原件）+ 表格截图 + 文档图片 |
 | 缓存层 | Redis | Phase 4 引入：查询结果缓存、Embedding 缓存、Celery Broker |
 | 任务队列 | Celery + Redis | Phase 4 引入：异步摄入任务调度、失败重试（最多 3 次）、死信队列 |
 
@@ -236,9 +243,14 @@ MinIO / S3
 │     ├── doc_002.docx
 │     └── ...
 │
-└── /table-images/                  ← 表格截图
-      ├── doc_001_p3_t1.png
-      ├── doc_001_p5_t2.png
+├── /table-images/                  ← 表格截图
+│     ├── doc_001_p3_t1.png
+│     ├── doc_001_p5_t2.png
+│     └── ...
+│
+└── /doc-images/                    ← 文档内嵌图片
+      ├── doc_001_p3_img1.png
+      ├── doc_001_p5_img2.png
       └── ...
 ```
 
@@ -487,9 +499,9 @@ class RAGOrchestrator:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `type` | string | 元素类型：`text` / `table` |
-| `content` | string | 文字原文或表格语义描述，用于 LLM 推理 |
-| `image_url` | string / null | 表格截图签名 URL（1小时有效），文字元素为 null |
+| `type` | string | 元素类型：`text` / `table` / `image` |
+| `content` | string | 文字原文、表格语义描述或图片占位文本，用于 LLM 推理 |
+| `image_url` | string / null | 表格截图或文档图片的签名 URL（1小时有效），文字元素为 null |
 
 ### 4.3 前端渲染逻辑
 
@@ -504,6 +516,10 @@ for each source in sources:
         if element.type == "table":
             渲染 <img src={element.image_url} />
             渲染折叠的语义描述（可点击展开，便于复制文字）
+
+        if element.type == "image":
+            渲染 <img src={element.image_url} />
+            渲染图片占位文本（可折叠）
 ```
 
 ### 4.4 LLM Prompt 构建规则
@@ -540,7 +556,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 | 向量数据库 | Milvus (pymilvus) | HNSW 索引，COSINE 度量，高性能 |
 | 文档存储 | PostgreSQL (SQLAlchemy 2.0 async) | 存储原文、分块内容、元数据 |
 | 缓存 | Redis | Phase 4 引入：查询缓存 + Embedding 缓存 |
-| Embedding 模型 | DashScope text-embedding-v2 | 1024 维云端 API，零部署 |
+| Embedding 模型 | DashScope text-embedding-v3 | 1024 维云端 API，零部署 |
 | 任务队列 | Phase 1 同步；Phase 4 Celery + Redis | 异步摄入、失败重试、死信队列 |
 | API 鉴权 | JWT / API Key | Phase 5 引入：统一鉴权中间件 |
 | 重排序 | BGE-Reranker-v2-m3 | Phase 2 引入：BAAI 出品，中文优秀，完全本地化 |
@@ -582,9 +598,15 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 - Qwen-VL 视觉模型推迟到 Phase 3，用于复杂合并单元格表格
 
 **DashScope API (Embedding + LLM)**
-- Embedding 使用 text-embedding-v2（1024 维云端 API）
+- Embedding 使用 text-embedding-v3（1024 维云端 API，支持自定义维度）
 - LLM 使用 Qwen（通过 DashScope OpenAI 兼容接口）
 - 零部署成本，Phase 1 快速验证；vLLM 本地部署推迟到有明确性能需求时
+
+**文档图片提取**
+- PDF：使用 pymupdf 的 `page.get_images()` 获取图片引用列表，`doc.extract_image(xref)` 提取图片原始数据，`page.get_image_info(xrefs=True)` 获取图片 bbox 坐标
+- Word：通过 python-docx 检测段落中的 `<w:drawing>` 元素，提取内嵌图片数据
+- 图片仅作为上下文补充，不参与向量化检索：在 `full_text` 中插入 `[图片: 文件名]` 占位文本，图片本身上传至 MinIO `/doc-images/` 目录
+- 图片的 `image_url` 与表格截图一样，返回时替换为签名 URL
 
 **Milvus**
 - 使用 pymilvus 同步客户端，Phase 1 无需 async wrapper
@@ -633,7 +655,7 @@ PDF / Word / Excel 文档上传
        │     记录 raw_file_url 到 PostgreSQL documents 表
        │
        ▼
-[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表
+[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表（文字/表格/图片）
        │
        ▼
 [段落边界识别]  →  Elements 聚合为段落组
@@ -643,7 +665,10 @@ PDF / Word / Excel 文档上传
        ├── 纯表格段落  ──▶ [截图 → OSS /table-images/]
        │                   [语义描述生成] ──────────────────────▶ [Embedding] ──▶ [Milvus]
        │
-       └── 混合段落    ──▶ [逐元素处理：文字保留 / 表格截图+描述]
+       ├── 纯图片段落  ──▶ [提取图片 → OSS /doc-images/]
+       │                   [生成占位文本] ──────────────────────▶ [Embedding] ──▶ [Milvus]
+       │
+       └── 混合段落    ──▶ [逐元素处理：文字保留 / 表格截图+描述 / 图片提取+占位]
                            [组装 MixedChunk，拼接 full_text] ──▶ [Embedding] ──▶ [Milvus]
                                                                   分块记录同步写入 PostgreSQL chunks 表
 ```

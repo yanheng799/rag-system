@@ -8,11 +8,11 @@ from typing import Optional
 
 @dataclass
 class ContentElement:
-    """内容元素：文字或表格"""
+    """内容元素：文字、表格或图片"""
 
-    type: str  # "text" | "table"
-    content: str  # 文字原文或表格 Markdown 内容
-    image_url: Optional[str] = None  # 仅 table 有值，内部 OSS 路径
+    type: str  # "text" | "table" | "image"
+    content: str  # 文字原文、表格 Markdown 内容或图片占位文本
+    image_url: Optional[str] = None  # table 和 image 有值，内部 OSS 路径
 
     def to_dict(self) -> dict:
         return {
@@ -35,7 +35,7 @@ class ChunkMetadata:
     """分块元数据"""
 
     chunk_id: str  # 格式：{doc_id}_p{page}_c{index}
-    chunk_type: str  # "text" | "table" | "mixed"
+    chunk_type: str  # "text" | "table" | "mixed" | "image"
     source: str  # 原始文件名
     page: int  # 所在页码（Excel 使用 sheet index）
     chunk_index: int  # 该页第几个分块（从 0 起）

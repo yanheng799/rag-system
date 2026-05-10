@@ -37,7 +37,7 @@ class Embedder:
             return []
 
         all_embeddings: list[list[float]] = []
-        batch_size = 25
+        batch_size = settings.embedding_batch_size
 
         for i in range(0, len(texts), batch_size):
             batch = [t[:self.MAX_INPUT_LENGTH] for t in texts[i : i + batch_size]]

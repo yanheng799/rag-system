@@ -169,7 +169,7 @@ class TestMilvusIntegration:
         import json
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        embedding = [0.1] * 1536
+        embedding = [0.1] * 1024
 
         record = {
             "embedding": embedding,

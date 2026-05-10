@@ -11,8 +11,8 @@ from typing import Any
 class ParsedElement:
     """解析后的文档元素"""
 
-    elem_type: str  # "text" | "table" | "title" | "list_item"
-    content: str  # 文字内容
+    elem_type: str  # "text" | "table" | "title" | "list_item" | "image"
+    content: str  # 文字内容或图片占位文本
     page: int  # 页码（Excel 使用 sheet index）
     bbox: tuple = (0, 0, 0, 0)  # (x0, y0, x1, y1) 坐标
     style: dict = field(default_factory=dict)  # 字体、缩进等样式信息
@@ -25,6 +25,10 @@ class ParsedElement:
     @property
     def is_title(self) -> bool:
         return self.elem_type == "title"
+
+    @property
+    def is_image(self) -> bool:
+        return self.elem_type == "image"
 
 
 class BaseParser(ABC):

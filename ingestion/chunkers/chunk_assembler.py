@@ -41,6 +41,7 @@ class ChunkBuilder:
         遍历 elements：
         - 文字元素：直接取 content，image_url=None
         - 表格元素：生成语义描述，如有截图服务则截图
+        - 图片元素：使用已上传的 OSS 路径，content 为占位文本
         """
         chunk_type = detect_chunk_type(elements)
         content_elements: list[ContentElement] = []
@@ -81,6 +82,21 @@ class ChunkBuilder:
                 )
                 text_parts.append(description)
                 table_counter += 1
+            elif elem.is_image:
+                # 图片元素：raw 中已有 oss_path
+                img_url = None
+                if elem.raw and isinstance(elem.raw, dict):
+                    img_url = elem.raw.get("oss_path")
+                if img_url:
+                    image_urls.append(img_url)
+                content_elements.append(
+                    ContentElement(
+                        type="image",
+                        content=elem.content,
+                        image_url=img_url,
+                    )
+                )
+                text_parts.append(elem.content)
             else:
                 # 文字元素
                 content_elements.append(

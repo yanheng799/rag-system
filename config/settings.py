@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.1, description="LLM 温度参数")
 
     # Embedding 配置
-    embedding_model: str = Field(default="text-embedding-v2")
-    embedding_dimension: int = Field(default=1536, description="Embedding 向量维度")
+    embedding_model: str = Field(default="text-embedding-v3")
+    embedding_dimension: int = Field(default=1024, description="Embedding 向量维度")
+    embedding_batch_size: int = Field(default=10, description="Embedding 批量大小")
 
     # PostgreSQL
     postgres_host: str = Field(default="127.0.0.1")

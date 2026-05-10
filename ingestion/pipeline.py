@@ -110,6 +110,22 @@ class IngestionPipeline:
                 chunk_index = page_chunk_counters.get(page, 0)
                 page_chunk_counters[page] = chunk_index + 1
 
+                # 上传图片元素至 MinIO（parser 只提取了 bytes，上传在此完成）
+                img_counter = 0
+                for elem in para_group:
+                    if elem.is_image and elem.raw and isinstance(elem.raw, dict):
+                        if "oss_path" not in elem.raw and "image_bytes" in elem.raw:
+                            ext = elem.raw.get("ext", "png")
+                            oss_path = self._oss.upload_doc_image(
+                                doc_id=doc_id,
+                                page=page,
+                                image_index=img_counter,
+                                image=elem.raw["image_bytes"],
+                                ext=ext,
+                            )
+                            elem.raw["oss_path"] = oss_path
+                            img_counter += 1
+
                 pdf_path = file_path if file_type == "pdf" else None
                 chunk = self._chunk_builder.build(
                     elements=para_group,

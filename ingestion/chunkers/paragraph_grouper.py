@@ -208,11 +208,14 @@ def _calculate_vertical_gap(elem_a: ParsedElement, elem_b: ParsedElement) -> flo
 
 def detect_chunk_type(group: list[ParsedElement]) -> str:
     """检测段落组的类型"""
-    has_text = any(not e.is_table for e in group)
     has_table = any(e.is_table for e in group)
+    has_image = any(e.is_image for e in group)
+    has_text = any(not e.is_table and not e.is_image for e in group)
 
-    if has_text and has_table:
+    if (has_text and has_table) or (has_text and has_image) or (has_table and has_image):
         return "mixed"
     if has_table:
         return "table"
+    if has_image:
+        return "image"
     return "text"

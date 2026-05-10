@@ -74,6 +74,22 @@ class OSSStore(ObjectStorePort):
         logger.info("表格截图已上传: %s", object_name)
         return object_name
 
+    def upload_doc_image(
+        self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png"
+    ) -> str:
+        """上传文档图片至 /doc-images/{doc_id}_p{page}_img{image_index}.{ext}"""
+        object_name = f"doc-images/{doc_id}_p{page}_img{image_index}.{ext}"
+        content_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
+        self._client.put_object(
+            self._bucket,
+            object_name,
+            io.BytesIO(image),
+            length=len(image),
+            content_type=content_type,
+        )
+        logger.info("文档图片已上传: %s", object_name)
+        return object_name
+
     def sign_url(self, path: str, expire_seconds: int = 3600) -> str:
         """生成预签名访问 URL"""
         url = self._client.presigned_get_object(

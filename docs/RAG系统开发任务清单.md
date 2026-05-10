@@ -1,7 +1,7 @@
 # RAG 系统开发任务清单
 
-> 基于《RAG 系统整体设计文档 v1.5》拆解
-> 版本：v1.2 | 状态：Phase 1 开发中
+> 基于《RAG 系统整体设计文档 v1.6》拆解
+> 版本：v1.3 | 状态：Phase 1 开发中
 
 ---
 
@@ -19,7 +19,7 @@
 
 | # | 决策点 | 结论 | 备注 |
 |---|--------|------|------|
-| 1 | Embedding 方案 | DashScope text-embedding-v2 (1024维) | 替代 BGE-M3 本地部署 |
+| 1 | Embedding 方案 | DashScope text-embedding-v3 (1024维) | 替代 BGE-M3 本地部署，v3 支持自定义维度 |
 | 2 | LLM 调用 | DashScope 云端 API (Qwen) | 替代 vLLM 本地部署 |
 | 3 | Qwen-VL 视觉模型 | Phase 1 跳过 | 所有表格走规则描述路径 |
 | 4 | 异步任务队列 | Phase 1 同步摄入 | Celery 推迟到 Phase 4 |
@@ -65,7 +65,8 @@ Batch 3: 摄入层
   TASK-011 (表格截图)
   TASK-012 (表格语义描述 - 仅规则路径)
   TASK-013 (MixedChunk 组装)
-  TASK-014 (Embedder - DashScope text-embedding-v2)
+  TASK-051 (文档图片提取)  ← 新增
+  TASK-014 (Embedder - DashScope text-embedding-v3)
   TASK-015 (摄入 Pipeline - 同步版)
 
 Batch 4: 检索 + 编排
@@ -731,18 +732,153 @@ class ChunkBuilder:
 
 ---
 
+### TASK-051｜文档图片提取模块
+
+**模块**：摄入层 - 图片处理
+**优先级**：P0
+**前置**：TASK-004、TASK-007、TASK-008
+**描述**：从 PDF 和 Word 文档中提取内嵌图片，上传至 MinIO 对象存储，生成占位文本。图片仅作为上下文补充，不参与向量化检索。
+
+**设计决策**：
+
+| 决策点 | 结论 | 说明 |
+|--------|------|------|
+| 图片处理方式 | 截图 + 占位文本 | 提取图片原文件上传 MinIO，在 full_text 中插入 `[图片: xxx.png]` 占位符 |
+| 图片检索角色 | 仅上下文补充 | 图片不参与向量化，只在命中文档时作为补充信息返回 |
+| 视觉模型 | 不使用 | Phase 1 不调用 Qwen-VL，图注由周围文本推断 |
+| 图片过滤 | 按尺寸过滤 | 忽略面积过小的图片（图标、装饰线），仅提取实质内容图片 |
+
+**MinIO 存储规范**：
+
+```
+Bucket: rag-storage
+└── /doc-images/
+      ├── {doc_id}_p{page}_img{index}.{ext}   # 文档图片
+      └── ...
+```
+
+**接口定义**：
+
+```python
+# ingestion/table_processor/image_extractor.py
+
+class ImageExtractor:
+    """文档图片提取器"""
+
+    # 过滤阈值：图片面积占页面面积比例低于此值的忽略
+    MIN_IMAGE_AREA_RATIO = 0.005
+    # 过滤阈值：图片宽度或高度低于此像素值的忽略
+    MIN_IMAGE_DIMENSION = 50
+
+    def extract_pdf_images(
+        self,
+        pdf_path: str,
+        doc_id: str,
+    ) -> list[ParsedElement]:
+        """
+        从 PDF 中提取内嵌图片。
+
+        使用 pymupdf API：
+        1. page.get_images(full=True) → 获取页面图片引用列表 (xref, smask, w, h, ...)
+        2. doc.extract_image(xref) → 提取图片原始数据 {"image": bytes, "ext": "png/jpeg", ...}
+        3. page.get_image_info(xrefs=True) → 获取图片 bbox 坐标
+
+        过滤规则：
+        - 面积占页面面积比 < MIN_IMAGE_AREA_RATIO → 忽略（小图标）
+        - 宽或高 < MIN_IMAGE_DIMENSION → 忽略（装饰线）
+        - 与表格 bbox 重叠 > 50% → 忽略（表格内图片由表格截图处理）
+
+        返回 elem_type="image" 的 ParsedElement 列表：
+        - content: 占位文本 "[图片: {filename}]"
+        - bbox: 图片在页面上的坐标
+        - raw: {"image_bytes": bytes, "ext": str, "filename": str}
+        """
+
+    def extract_word_images(
+        self,
+        docx_path: str,
+        doc_id: str,
+    ) -> list[ParsedElement]:
+        """
+        从 Word 文档中提取内嵌图片。
+
+        使用 python-docx：
+        1. 遍历段落，检测 paragraph._element.xpath('.//w:drawing')
+        2. 从 drawing 元素中提取 rId，通过 doc.part.related_parts 获取图片数据
+        3. 记录图片在文档中的位置（段落索引）
+
+        返回 elem_type="image" 的 ParsedElement 列表
+        """
+
+    def upload_image(
+        self,
+        image_bytes: bytes,
+        ext: str,
+        doc_id: str,
+        page: int,
+        index: int,
+    ) -> str:
+        """
+        上传图片至 MinIO /doc-images/ 目录。
+        命名规范：{doc_id}_p{page}_img{index}.{ext}
+        返回内部 OSS 路径。
+        """
+```
+
+**ParsedElement 扩展**：
+
+```python
+# ingestion/parsers/base.py 新增 elem_type 值
+
+@dataclass
+class ParsedElement:
+    elem_type: str  # "text" | "table" | "title" | "list_item" | "image"  ← 新增 "image"
+    content: str    # 图片元素为占位文本 "[图片: xxx.png]"
+    page: int
+    bbox: tuple     # 图片在页面上的坐标 (x0, y0, x1, y1)
+    style: dict
+    raw: Any        # {"image_bytes": bytes, "ext": str, "filename": str}
+```
+
+**ContentElement 扩展**：
+
+```python
+# models/chunks.py 新增 type 值
+
+@dataclass
+class ContentElement:
+    type: str              # "text" | "table" | "image"  ← 新增 "image"
+    content: str           # 图片元素为占位文本
+    image_url: str | None  # 图片内部 OSS 路径
+```
+
+**ChunkBuilder 更新**：
+
+```python
+# ingestion/chunkers/chunk_assembler.py 新增图片元素处理
+
+if elem.elem_type == "image":
+    # 1. 从 elem.raw 取出图片数据
+    # 2. 调用 ImageExtractor.upload_image 上传至 MinIO
+    # 3. 构造 ContentElement(type="image", content="[图片: xxx]", image_url=oss_path)
+```
+
+**交付物**：`ingestion/table_processor/image_extractor.py` + 单元测试 + 更新 `models/chunks.py`、`ingestion/parsers/base.py`、`ingestion/chunkers/chunk_assembler.py`
+
+---
+
 ### TASK-014｜Embedding 模型封装
 
 **模块**：摄入层 - Embedding
 **优先级**：P0
 **前置**：TASK-006
-**描述**：封装 DashScope text-embedding-v2 API，提供批量向量化接口。
+**描述**：封装 DashScope text-embedding-v3 API，提供批量向量化接口。
 
 ```python
 # ingestion/embedder.py
 
 class Embedder:
-    def __init__(self, api_key: str, model: str = "text-embedding-v2"):
+    def __init__(self, api_key: str, model: str = "text-embedding-v3"):
         ...
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -755,8 +891,9 @@ class Embedder:
 **配置项**（`config/settings.py`）：
 ```
 DASHSCOPE_API_KEY    = "sk-..."       # DashScope API Key
-EMBEDDING_MODEL      = "text-embedding-v2"
+EMBEDDING_MODEL      = "text-embedding-v3"
 EMBEDDING_DIMENSION  = 1024
+EMBEDDING_BATCH_SIZE = 10             # v3 批量上限为 10
 ```
 
 **交付物**：`ingestion/embedder.py`
@@ -2448,7 +2585,8 @@ TASK-001（工程初始化）
                     │       └── TASK-010（段落聚合）
                     │               ├── TASK-011（表格截图）← 依赖 004
                     │               ├── TASK-012（表格描述 - Phase 1 仅规则路径）
-                    │               └── TASK-013（Chunk 组装）← 依赖 011/012
+                    │               ├── TASK-051（文档图片提取）← 依赖 004/007/008
+                    │               └── TASK-013（Chunk 组装）← 依赖 011/012/051
                     │                       └── TASK-015（摄入 Pipeline - 同步版）← 依赖 009~014
                     │                               └── TASK-015b（重试/死信队列）← Phase 4，依赖 Celery
                     │                                       └── TASK-043（增量更新）← 依赖 015/015b
@@ -2489,6 +2627,6 @@ TASK-038 → TASK-046（动态参数配置）
 
 ---
 
-*共计 55 个开发任务（含新增 TASK-008d），覆盖 7 个 Phase。*
+*共计 56 个开发任务（含新增 TASK-008d、TASK-051），覆盖 7 个 Phase。*
 *Phase 1 按 Batch 1~5 顺序开发，使用 DashScope 云端 API 替代 vLLM 本地部署，同步摄入替代 Celery 异步队列。*
 *建议按 Phase 1 开发顺序分批提交，确保每个 Batch 的测试通过后再进入下一个 Batch。*

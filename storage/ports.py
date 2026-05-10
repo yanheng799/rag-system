@@ -92,6 +92,12 @@ class ObjectStorePort(ABC):
         """上传表格截图，返回内部路径"""
 
     @abstractmethod
+    def upload_doc_image(
+        self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png"
+    ) -> str:
+        """上传文档图片，返回内部路径"""
+
+    @abstractmethod
     def sign_url(self, path: str, expire_seconds: int = 3600) -> str:
         """生成签名访问 URL"""
 
