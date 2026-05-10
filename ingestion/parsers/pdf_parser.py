@@ -36,6 +36,7 @@ class PDFParser(BaseParser):
         toc_pages = detect_toc_pages(doc)
         elements: list[ParsedElement] = []
         page_sizes: dict[int, tuple[float, float]] = {}
+        page_layouts: dict[int, str] = {}
 
         for page_num in range(len(doc)):
             if page_num in toc_pages:
@@ -44,6 +45,7 @@ class PDFParser(BaseParser):
             page = doc[page_num]
             page_sizes[page_num] = (page.rect.width, page.rect.height)
             layout = detect_page_layout(page)
+            page_layouts[page_num] = layout
             elements.extend(self._parse_page(page, page_num, layout, hf_zones))
 
         # 提取图片（需在 doc 关闭前）
@@ -65,8 +67,33 @@ class PDFParser(BaseParser):
         elements = merge_cross_page_tables(elements, page_sizes)
         elements = merge_cross_column_tables(elements, page_sizes)
 
+        # 最后：按页做双栏重排（左栏 → 右栏）
+        elements = self._reorder_by_layout(elements, page_sizes, page_layouts)
+
         logger.info("PDF 解析完成: %s, 共 %d 个元素", file_path, len(elements))
         return elements
+
+    def _reorder_by_layout(
+        self,
+        elements: list[ParsedElement],
+        page_sizes: dict[int, tuple[float, float]],
+        page_layouts: dict[int, str],
+    ) -> list[ParsedElement]:
+        """按页分组，对双栏页做左栏→右栏重排"""
+        page_groups: dict[int, list[ParsedElement]] = {}
+        for e in elements:
+            page_groups.setdefault(e.page, []).append(e)
+
+        result: list[ParsedElement] = []
+        for pn in sorted(page_groups):
+            group = page_groups[pn]
+            layout = page_layouts.get(pn, "single")
+            pw = page_sizes.get(pn, (0, 0))[0]
+            if layout == "double" and pw > 0:
+                group = reorder_elements_for_layout(group, pw, layout)
+            result.extend(group)
+
+        return result
 
     def _parse_page(
         self,
@@ -107,9 +134,6 @@ class PDFParser(BaseParser):
 
         # 按 y 坐标排序（从上到下），x 坐标为次要排序
         elements.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
-
-        # 根据排版格式重排元素（双栏：左列→右列）
-        elements = reorder_elements_for_layout(elements, page_width, layout)
 
         return elements
 
