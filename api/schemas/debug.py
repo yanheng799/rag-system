@@ -2,7 +2,7 @@
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class RetrieveRequest(BaseModel):
@@ -12,15 +12,35 @@ class RetrieveRequest(BaseModel):
     show_prompt: bool = False
 
 
+class ElementSchema(BaseModel):
+    type: str  # "text" | "table" | "image"
+    content: str
+    image_url: Optional[str] = None
+
+
+class DebugChunkMetadata(BaseModel):
+    chunk_id: str
+    chunk_type: str
+    source: str
+    page: int
+    pages: list[int] = []
+    chunk_index: int
+    char_count: int
+    created_at: str
+    doc_id: str
+
+
 class DebugChunkScores(BaseModel):
-    vector_score: Optional[float] = None
+    vector_score: float
 
 
 class DebugChunk(BaseModel):
     rank: int
-    metadata: dict
+    metadata: DebugChunkMetadata
+    full_text: str
     scores: DebugChunkScores
-    elements: list[dict]
+    elements: list[ElementSchema]
+    image_urls: list[str] = []
 
 
 class RetrieveResponse(BaseModel):

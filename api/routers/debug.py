@@ -8,7 +8,9 @@ from fastapi import APIRouter, HTTPException, Request
 
 from api.schemas.debug import (
     DebugChunk,
+    DebugChunkMetadata,
     DebugChunkScores,
+    ElementSchema,
     RetrieveRequest,
     RetrieveResponse,
 )
@@ -45,25 +47,35 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         messages = prompt_builder.build(body.question, chunks)
         prompt_text = messages[1]["content"] if len(messages) > 1 else ""
 
+    signed_url_service = request.app.state.signed_url_service
+
     # 构建响应
     debug_chunks = []
     for idx, chunk in enumerate(chunks, 1):
-        metadata = chunk.metadata.to_dict()
-        elements = [e.to_dict() for e in chunk.elements]
+        metadata = DebugChunkMetadata(**chunk.metadata.to_dict())
 
-        # 签名 URL 替换
-        signed_url_service = request.app.state.signed_url_service
-        if signed_url_service:
-            for elem in elements:
-                if elem.get("image_url"):
-                    elem["image_url"] = signed_url_service.sign(elem["image_url"])
+        elements = []
+        for e in chunk.elements:
+            image_url = e.image_url
+            if image_url and signed_url_service:
+                image_url = signed_url_service.sign(image_url)
+            elements.append(ElementSchema(type=e.type, content=e.content, image_url=image_url))
+
+        image_urls = []
+        for url in chunk.image_urls:
+            if signed_url_service:
+                image_urls.append(signed_url_service.sign(url))
+            else:
+                image_urls.append(url)
 
         debug_chunks.append(
             DebugChunk(
                 rank=idx,
                 metadata=metadata,
+                full_text=chunk.full_text,
                 scores=DebugChunkScores(vector_score=chunk.score),
                 elements=elements,
+                image_urls=image_urls,
             )
         )
 

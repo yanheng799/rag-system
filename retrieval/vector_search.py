@@ -62,6 +62,7 @@ class VectorSearcher:
                 char_count=hit["char_count"],
                 created_at=hit["created_at"],
                 doc_id=hit["doc_id"],
+                pages=hit.get("pages", [hit["page"]]),
             )
             elements = [
                 ContentElement.from_dict(e) for e in hit.get("elements", [])
