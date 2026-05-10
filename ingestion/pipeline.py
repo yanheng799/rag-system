@@ -96,6 +96,7 @@ class IngestionPipeline:
                 vertical_gap_threshold=settings.chunk_vertical_gap,
                 max_chunk_size=settings.chunk_max_size,
                 page_sizes=page_sizes,
+                doc_id=doc_id,
             )
             logger.info("段落聚合完成: %d 个段落组", len(paragraphs))
 
@@ -104,7 +105,7 @@ class IngestionPipeline:
             # 按 page 分组计数 chunk_index
             page_chunk_counters: dict[int, int] = {}
 
-            for para_group in paragraphs:
+            for para_group, group_id in paragraphs:
                 # 使用第一个元素的 page 作为 chunk 的 page
                 page = para_group[0].page if para_group else 0
                 chunk_index = page_chunk_counters.get(page, 0)
@@ -135,6 +136,7 @@ class IngestionPipeline:
                     chunk_index=chunk_index,
                     pdf_path=pdf_path,
                 )
+                chunk.metadata.group_id = group_id
                 chunks.append(chunk)
 
             logger.info("MixedChunk 组装完成: %d 个分块", len(chunks))
@@ -165,6 +167,7 @@ class IngestionPipeline:
                     "char_count": chunk.metadata.char_count,
                     "created_at": chunk.metadata.created_at,
                     "pages": chunk.metadata.pages,
+                    "group_id": chunk.metadata.group_id,
                 })
             self._vector_store.insert(milvus_records)
             logger.info("Milvus 写入完成: %d 条向量记录", len(milvus_records))
@@ -181,6 +184,7 @@ class IngestionPipeline:
                     page=chunk.metadata.page,
                     chunk_index=chunk.metadata.chunk_index,
                     char_count=chunk.metadata.char_count,
+                    group_id=chunk.metadata.group_id,
                 )
                 await self._doc_store.save_chunk(chunk_record)
 

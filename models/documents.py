@@ -38,6 +38,7 @@ class ChunkRecord:
     page: int
     chunk_index: int
     char_count: int
+    group_id: str = ""
     created_at: Optional[datetime] = None
 
 

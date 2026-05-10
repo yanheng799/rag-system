@@ -58,6 +58,7 @@ class MilvusStore(VectorStorePort):
             FieldSchema("char_count", DataType.INT32),
             FieldSchema("created_at", DataType.VARCHAR, max_length=32),
             FieldSchema("pages", DataType.VARCHAR, max_length=256),
+            FieldSchema("group_id", DataType.VARCHAR, max_length=128),
         ]
         return CollectionSchema(fields=fields, description="RAG 分块向量索引")
 
@@ -111,6 +112,7 @@ class MilvusStore(VectorStorePort):
                 "char_count": r["char_count"],
                 "created_at": r["created_at"],
                 "pages": json.dumps(r.get("pages", [r["page"]]), ensure_ascii=False),
+                "group_id": r.get("group_id", ""),
             }
             for r in records
         ]
@@ -150,7 +152,7 @@ class MilvusStore(VectorStorePort):
             output_fields=[
                 "chunk_id", "doc_id", "full_text", "chunk_type",
                 "elements", "image_urls", "source", "page",
-                "chunk_index", "char_count", "created_at", "pages",
+                "chunk_index", "char_count", "created_at", "pages", "group_id",
             ],
         )
 
@@ -171,9 +173,44 @@ class MilvusStore(VectorStorePort):
                 "char_count": hit.entity.get("char_count"),
                 "created_at": hit.entity.get("created_at"),
                 "pages": json.loads(hit.entity.get("pages", "[]")),
+                "group_id": hit.entity.get("group_id", ""),
             }
             hits.append(record)
         return hits
+
+    def fetch_by_group_ids(self, group_ids: list[str]) -> list[dict]:
+        """按 group_id 批量查询所有关联分块"""
+        if self._collection is None:
+            self.init_collection()
+        values = ", ".join(f'"{gid}"' for gid in group_ids)
+        expr = f"group_id in [{values}]"
+        results = self._collection.query(
+            expr=expr,
+            output_fields=[
+                "chunk_id", "doc_id", "full_text", "chunk_type",
+                "elements", "image_urls", "source", "page",
+                "chunk_index", "char_count", "created_at", "pages", "group_id",
+            ],
+        )
+        records = []
+        for hit in results:
+            records.append({
+                "id": hit.get("id"),
+                "chunk_id": hit.get("chunk_id"),
+                "doc_id": hit.get("doc_id"),
+                "full_text": hit.get("full_text"),
+                "chunk_type": hit.get("chunk_type"),
+                "elements": json.loads(hit.get("elements", "[]")),
+                "image_urls": json.loads(hit.get("image_urls", "[]")),
+                "source": hit.get("source"),
+                "page": hit.get("page"),
+                "chunk_index": hit.get("chunk_index"),
+                "char_count": hit.get("char_count"),
+                "created_at": hit.get("created_at"),
+                "pages": json.loads(hit.get("pages", "[]")),
+                "group_id": hit.get("group_id", ""),
+            })
+        return records
 
     def delete_by_doc_id(self, doc_id: str) -> None:
         """按文档 ID 删除所有向量记录"""

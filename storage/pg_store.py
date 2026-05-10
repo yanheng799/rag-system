@@ -167,6 +167,7 @@ class PgStore(DocumentStorePort):
                 page=chunk.page,
                 chunk_index=chunk.chunk_index,
                 char_count=chunk.char_count,
+                group_id=chunk.group_id,
             )
             session.add(orm)
             await session.commit()
@@ -184,6 +185,7 @@ class PgStore(DocumentStorePort):
                     page=c.page,
                     chunk_index=c.chunk_index,
                     char_count=c.char_count,
+                    group_id=c.group_id,
                 )
                 for c in chunks
             ]

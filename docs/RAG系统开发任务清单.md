@@ -732,6 +732,117 @@ class ChunkBuilder:
 
 ---
 
+### TASK-052｜分块关联合并（group_id）
+
+**模块**：摄入层 + 检索层
+**优先级**：P0
+**前置**：TASK-015、TASK-018
+**描述**：大段落因 `max_chunk_size` 被拆分为多个子分块时，通过 `group_id` 关联。检索命中任一子分块时，自动获取同组全部兄弟分块并合并返回完整段落内容。
+
+**算法设计**：
+
+#### 摄入阶段
+
+在 `_split_oversized_groups` 中，当一组被拆分为多个子组时，所有子组共享同一个 `group_id`；未拆分的组 `group_id` 为空串。
+
+```
+段落组 (1545 chars, 超过 1024)
+  → split → 子组A (877 chars) group_id="doc_xxx_g3"
+           子组B (668 chars) group_id="doc_xxx_g3"
+```
+
+#### 检索阶段
+
+1. 向量搜索 → 得到 top-k 结果
+2. 收集结果中有非空 `group_id` 的分块
+3. 批量查询 Milvus：按 `group_id` 获取所有兄弟分块
+4. 按 `(page, chunk_index)` 排序，拼接 `full_text`
+5. 去重：同组多个命中只保留一个合并结果，取最高分
+
+**涉及改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `ingestion/chunkers/paragraph_grouper.py` | `_split_oversized_groups` 接收 `doc_id`，拆分时打 `group_id` |
+| `models/chunks.py` | `ChunkMetadata` 增加 `group_id: str = ""` |
+| `models/documents.py` | `ChunkRecord` 增加 `group_id` 字段 |
+| `storage/pg_models.py` | `ChunkORM` 增加 `group_id` 列 |
+| `storage/milvus_store.py` | Schema 增加 `group_id`；新增 `fetch_by_group_ids` |
+| `storage/ports.py` | `VectorStorePort` 增加 `fetch_by_group_ids` |
+| `retrieval/vector_search.py` | 搜索后合并同组分块 |
+| `ingestion/pipeline.py` | 构建 chunk 时传递 `group_id` |
+| Alembic 迁移 | `rag_chunks` 表增加 `group_id` 列 + 索引 |
+
+**Milvus Schema 变更**：
+
+```python
+FieldSchema("group_id", DataType.VARCHAR, max_length=128),
+```
+
+新增方法：
+
+```python
+# storage/milvus_store.py
+def fetch_by_group_ids(self, group_ids: list[str]) -> list[dict]:
+    """按 group_id 批量查询所有关联分块"""
+    values = ', '.join(f'"{gid}"' for gid in group_ids)
+    expr = f'group_id in [{values}]'
+    results = self._collection.query(expr=expr, output_fields=[...])
+    return results
+```
+
+**检索合并逻辑**：
+
+```python
+# retrieval/vector_search.py
+def search(self, question, top_k, filters):
+    chunks = self._vector_search(...)
+
+    # 收集需要合并的 group
+    group_map: dict[str, list[RetrievedChunk]] = {}
+    for chunk in chunks:
+        if chunk.metadata.group_id:
+            group_map.setdefault(chunk.metadata.group_id, []).append(chunk)
+
+    if group_map:
+        siblings = self._vector_store.fetch_by_group_ids(list(group_map.keys()))
+        # 补充结果中未命中的兄弟分块
+        for hit in siblings:
+            gid = hit["group_id"]
+            existing_ids = {c.metadata.chunk_id for c in group_map[gid]}
+            if hit["chunk_id"] not in existing_ids:
+                # 构造 RetrievedChunk 加入 group_map
+                ...
+
+        # 合并同组：拼接 full_text，取最高分
+        merged = []
+        seen = set()
+        for chunk in chunks:
+            gid = chunk.metadata.group_id
+            if not gid:
+                merged.append(chunk)
+                continue
+            if gid in seen:
+                continue
+            seen.add(gid)
+            group = sorted(group_map[gid], key=lambda c: (c.metadata.page, c.metadata.chunk_index))
+            chunk.full_text = "\n".join(c.full_text for c in group)
+            chunk.score = max(c.score for c in group)
+            merged.append(chunk)
+        chunks = merged
+
+    return chunks
+```
+
+**验证**：
+
+1. 上传抱杆使用说明书 PDF，确认 2.1.4 被拆分后两个子分块具有相同 `group_id`
+2. 向量检索命中任一子分块，验证返回结果包含完整的 2.1.4 内容
+
+**交付物**：上述文件改动 + Alembic 迁移 + 集成测试
+
+---
+
 ### TASK-051｜文档图片提取模块
 
 **模块**：摄入层 - 图片处理

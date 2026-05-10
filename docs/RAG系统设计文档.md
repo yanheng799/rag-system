@@ -25,6 +25,7 @@
 - Phase 1 同步摄入，Phase 4 引入 Celery 异步任务队列，支持失败自动重试（最多 3 次），超限后进入死信队列并告警
 - **混合块支持**：同一段落内的文字与表格作为一个整体分块，召回时文字描述与表格截图一并返回
 - **文档图片提取**：提取 PDF/Word 文档中内嵌的图片（施工图、示意图、设备照片等），上传至对象存储，作为上下文补充返回给用户
+- **分块关联合并**：大段落因 `max_chunk_size` 被拆分为多个子分块时，通过 `group_id` 关联；检索命中任一子分块时自动合并返回完整段落内容
 - **增量更新**：文档内容变化时，仅删除该文档的旧向量和分块记录，重新摄入生成新索引，无需重建全量索引
 
 ### 2.2 检索能力
@@ -172,6 +173,7 @@ class ChunkMetadata:
     char_count:  int       # full_text 字符数
     created_at:  str       # 摄入时间，ISO 8601 格式
     doc_id:      str       # 所属文档 ID
+    group_id:    str       # 分块组标识，空串表示独立分块；非空表示属于同一逻辑段落（因超长拆分）
 
 @dataclass
 class MixedChunk:
@@ -323,6 +325,7 @@ fields = [
     FieldSchema("image_urls",  DataType.VARCHAR,      max_length=2048),  # JSON 数组，快速取图
     FieldSchema("chunk_id",    DataType.VARCHAR,      max_length=64),
     FieldSchema("doc_id",      DataType.VARCHAR,      max_length=64),
+    FieldSchema("group_id",    DataType.VARCHAR,      max_length=128),   # 分块组标识（拆分关联）
     FieldSchema("source",      DataType.VARCHAR,      max_length=256),
     FieldSchema("page",        DataType.INT32),
     FieldSchema("chunk_index", DataType.INT32),
@@ -369,6 +372,24 @@ class RetrievedChunk:
     full_text:  str                  # 完整文本，已送入 LLM
     image_urls: list[str]            # 快速访问所有截图 URL
     score:      float                # 召回相关性分数（重排后）
+```
+
+**分块关联合并**：大段落因 `max_chunk_size` 被拆分时，所有子分块共享同一个 `group_id`。向量检索命中任一子分块后：
+
+1. 收集结果中所有非空的 `group_id`
+2. 批量查询 Milvus 获取同组全部兄弟分块
+3. 按 `(page, chunk_index)` 排序后拼接 `full_text`，合并为完整段落
+4. 去重：同组多个命中只保留一个合并结果，取最高分
+
+```
+段落组 (1545 chars) → 拆分为:
+  子分块A (877 chars, group_id="doc_xxx_g3")
+  子分块B (668 chars, group_id="doc_xxx_g3")
+
+检索命中 子分块B (score=0.85)
+  → 获取 group_id="doc_xxx_g3" 的所有兄弟
+  → 合并 A + B 的 full_text
+  → 返回完整段落 (1545 chars, score=0.85)
 ```
 
 **性能策略**：粗召回阶段取 Top 20-50，重排序后取 Top 5，平衡召回率与延迟。

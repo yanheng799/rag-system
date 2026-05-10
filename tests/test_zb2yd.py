@@ -125,7 +125,7 @@ class TestZB2YDPdf:
 
         # 按类型统计
         type_counts = {}
-        for g in paragraphs:
+        for g, _ in paragraphs:
             ct = detect_chunk_type(g)
             type_counts[ct] = type_counts.get(ct, 0) + 1
         for t, c in sorted(type_counts.items()):
@@ -157,7 +157,7 @@ class TestZB2YDPdf:
         chunks = []
 
         page_chunk_counters: dict[int, int] = {}
-        for para_group in paragraphs:
+        for para_group, _ in paragraphs:
             page = para_group[0].page if para_group else 0
             chunk_index = page_chunk_counters.get(page, 0)
             page_chunk_counters[page] = chunk_index + 1
@@ -228,7 +228,7 @@ class TestZB2YDPdf:
         doc_id = "test_zb2yd"
         chunks = []
         page_chunk_counters: dict[int, int] = {}
-        for para_group in paragraphs:
+        for para_group, _ in paragraphs:
             page = para_group[0].page if para_group else 0
             chunk_index = page_chunk_counters.get(page, 0)
             page_chunk_counters[page] = chunk_index + 1

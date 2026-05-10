@@ -22,7 +22,7 @@ class TestParagraphGroupingIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         assert len(paragraphs) > 0
         # 每个段落至少 1 个元素
-        for group in paragraphs:
+        for group, gid in paragraphs:
             assert len(group) >= 1
 
     def test_group_word_elements(self):
@@ -37,7 +37,7 @@ class TestParagraphGroupingIntegration:
         parser = PDFParser()
         elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
-        types = {detect_chunk_type(g) for g in paragraphs}
+        types = {detect_chunk_type(g) for g, _ in paragraphs}
         # 至少应有 text 类型
         assert "text" in types
 
@@ -52,7 +52,7 @@ class TestChunkBuilderIntegration:
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
         # 取一个纯文字段落
-        for group in paragraphs:
+        for group, gid in paragraphs:
             if detect_chunk_type(group) == "text":
                 chunk = builder.build(
                     elements=group,
@@ -75,7 +75,7 @@ class TestChunkBuilderIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
-        for group in paragraphs:
+        for group, gid in paragraphs:
             if detect_chunk_type(group) == "mixed":
                 chunk = builder.build(
                     elements=group,
@@ -95,7 +95,7 @@ class TestChunkBuilderIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
-        for group in paragraphs:
+        for group, gid in paragraphs:
             if detect_chunk_type(group) == "table":
                 chunk = builder.build(
                     elements=group,
@@ -120,10 +120,10 @@ class TestChunkBuilderIntegration:
 
         assert len(paragraphs) > 0
         chunk = builder.build(
-            elements=paragraphs[0],
+            elements=paragraphs[0][0],
             doc_id="test_excel",
             source="test.xlsx",
-            page=paragraphs[0][0].page,
+            page=paragraphs[0][0][0].page,
             chunk_index=0,
         )
         assert len(chunk.full_text) > 0

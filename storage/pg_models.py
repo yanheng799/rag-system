@@ -62,6 +62,7 @@ class ChunkORM(Base):
     page: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    group_id: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

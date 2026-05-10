@@ -43,6 +43,7 @@ class ChunkMetadata:
     created_at: str  # 摄入时间，ISO 8601 格式
     doc_id: str  # 所属文档 ID
     pages: list[int] = field(default_factory=list)  # 所涉全部页码（跨页时多项）
+    group_id: str = ""  # 分块组标识，空串表示独立分块；非空表示属于同一逻辑段落
 
     def to_dict(self) -> dict:
         return {
@@ -55,6 +56,7 @@ class ChunkMetadata:
             "created_at": self.created_at,
             "doc_id": self.doc_id,
             "pages": self.pages,
+            "group_id": self.group_id,
         }
 
     @classmethod
@@ -69,6 +71,7 @@ class ChunkMetadata:
             created_at=data["created_at"],
             doc_id=data["doc_id"],
             pages=data.get("pages", []),
+            group_id=data.get("group_id", ""),
         )
 
 

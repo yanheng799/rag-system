@@ -83,13 +83,18 @@ def group_elements_by_paragraph(
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
     max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
     page_sizes: dict[int, tuple[float, float]] | None = None,
-) -> list[list[ParsedElement]]:
+    doc_id: str = "",
+) -> list[tuple[list[ParsedElement], str]]:
     """
     将扁平 Element 列表按段落边界聚合为段落组。
 
     两阶段处理：
     1. 按段落边界分组（标题与内容合并）
     2. 超长分组拆分（不超过 max_chunk_size 字符）
+
+    返回 list[tuple[elements, group_id]]：
+    - 未拆分的段落 group_id 为空串
+    - 被拆分的段落所有子组共享同一 group_id
     """
     if not elements:
         return []
@@ -121,10 +126,11 @@ def group_elements_by_paragraph(
 
     # 阶段 2：超长分组拆分
     if max_chunk_size > 0:
-        paragraphs = _split_oversized_groups(paragraphs, max_chunk_size)
-        logger.info("超长拆分后: %d 个段落组", len(paragraphs))
+        result = _split_oversized_groups(paragraphs, max_chunk_size, doc_id)
+        logger.info("超长拆分后: %d 个段落组", len(result))
+        return result
 
-    return paragraphs
+    return [(p, "") for p in paragraphs]
 
 
 def _merge_heading_only_groups(
@@ -162,16 +168,21 @@ def _merge_heading_only_groups(
 def _split_oversized_groups(
     paragraphs: list[list[ParsedElement]],
     max_chunk_size: int,
-) -> list[list[ParsedElement]]:
-    """拆分超长的段落组"""
-    result: list[list[ParsedElement]] = []
+    doc_id: str = "",
+) -> list[tuple[list[ParsedElement], str]]:
+    """拆分超长的段落组，被拆分的组共享同一个 group_id"""
+    result: list[tuple[list[ParsedElement], str]] = []
+    group_counter = 0
     for group in paragraphs:
         group_size = sum(len(e.content) for e in group)
         if group_size <= max_chunk_size or len(group) <= 1:
-            result.append(group)
+            result.append((group, ""))
             continue
+        gid = f"{doc_id}_g{group_counter}" if doc_id else f"g{group_counter}"
         sub_groups = _split_group_by_size(group, max_chunk_size)
-        result.extend(sub_groups)
+        for sg in sub_groups:
+            result.append((sg, gid))
+        group_counter += 1
     return result
 
 

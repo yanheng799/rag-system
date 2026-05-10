@@ -79,7 +79,7 @@ class TestZB2YDDocx:
         paragraphs = group_elements_by_paragraph(elements)
 
         type_counts = {}
-        for g in paragraphs:
+        for g, _ in paragraphs:
             ct = detect_chunk_type(g)
             type_counts[ct] = type_counts.get(ct, 0) + 1
 
@@ -98,7 +98,7 @@ class TestZB2YDDocx:
         doc_id = "test_zb2yd_800"
         chunks = []
         pcc = {}
-        for pg in paragraphs:
+        for pg, _ in paragraphs:
             p = pg[0].page if pg else 1
             ci = pcc.get(p, 0)
             pcc[p] = ci + 1
@@ -141,7 +141,7 @@ class TestZB2YDDocx:
         doc_id = "test_zb2yd_800"
         chunks = []
         pcc = {}
-        for pg in paragraphs:
+        for pg, _ in paragraphs:
             p = pg[0].page if pg else 1
             ci = pcc.get(p, 0)
             pcc[p] = ci + 1

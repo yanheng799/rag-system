@@ -296,7 +296,7 @@ class TestGroupByParagraph:
         elements = [ParsedElement(elem_type="text", content="hello", page=0)]
         result = group_elements_by_paragraph(elements)
         assert len(result) == 1
-        assert len(result[0]) == 1
+        assert len(result[0][0]) == 1
 
     def test_title_merges_with_following_content(self):
         """标题与后续内容合并在同一组"""
@@ -308,8 +308,8 @@ class TestGroupByParagraph:
         result = group_elements_by_paragraph(elements, max_chunk_size=0)
         # 文字1 → 标题(间距20px>15px，拆分)，标题+文字2合并
         assert len(result) == 2
-        assert result[1][0].content == "标题"
-        assert result[1][1].content == "文字2"
+        assert result[1][0][0].content == "标题"
+        assert result[1][0][1].content == "文字2"
 
     def test_heading_pattern_merges_with_content(self):
         """正则匹配的标题也与后续内容合并"""
@@ -319,7 +319,7 @@ class TestGroupByParagraph:
         ]
         result = group_elements_by_paragraph(elements, max_chunk_size=0)
         assert len(result) == 1
-        assert result[0][0].content == "第三章 设计"
+        assert result[0][0][0].content == "第三章 设计"
 
     def test_mixed_text_and_table(self):
         elements = [
@@ -328,7 +328,7 @@ class TestGroupByParagraph:
         ]
         result = group_elements_by_paragraph(elements)
         assert len(result) == 1
-        assert detect_chunk_type(result[0]) == "mixed"
+        assert detect_chunk_type(result[0][0]) == "mixed"
 
     def test_table_only_group(self):
         elements = [
@@ -336,7 +336,7 @@ class TestGroupByParagraph:
         ]
         result = group_elements_by_paragraph(elements)
         assert len(result) == 1
-        assert detect_chunk_type(result[0]) == "table"
+        assert detect_chunk_type(result[0][0]) == "table"
 
     def test_text_only_group(self):
         elements = [
@@ -345,7 +345,7 @@ class TestGroupByParagraph:
         ]
         result = group_elements_by_paragraph(elements)
         assert len(result) == 1
-        assert detect_chunk_type(result[0]) == "text"
+        assert detect_chunk_type(result[0][0]) == "text"
 
 
 class TestMaxChunkSize:
@@ -361,7 +361,7 @@ class TestMaxChunkSize:
         result = group_elements_by_paragraph(elements, max_chunk_size=1024)
         # 总共 1500 字符，应该被拆分为多个组
         assert len(result) > 1
-        for group in result:
+        for group, gid in result:
             size = sum(len(e.content) for e in group)
             assert size <= 1536  # 允许单个超限元素独占一组
 
@@ -381,7 +381,7 @@ class TestMaxChunkSize:
         ]
         result = group_elements_by_paragraph(elements, max_chunk_size=1024)
         assert len(result) == 1
-        assert len(result[0]) == 1
+        assert len(result[0][0]) == 1
 
     def test_heading_not_orphaned(self):
         """标题不会被孤立 — 至少包含一个后续元素"""
@@ -392,7 +392,7 @@ class TestMaxChunkSize:
         ]
         result = group_elements_by_paragraph(elements, max_chunk_size=1024)
         # 不应出现只有标题的孤立组
-        for group in result:
+        for group, gid in result:
             if any(e.is_title for e in group):
                 assert len(group) > 1
 
@@ -617,8 +617,8 @@ class TestCrossPageParagraph:
         page_sizes = {0: (595, 842), 1: (595, 842)}
         result = group_elements_by_paragraph(elements, max_chunk_size=0, page_sizes=page_sizes)
         assert len(result) == 1
-        assert result[0][0].content == "页底文字"
-        assert result[0][1].content == "页顶续文"
+        assert result[0][0][0].content == "页底文字"
+        assert result[0][0][1].content == "页顶续文"
 
     def test_table_across_page_still_split(self):
         """表格跨页仍应拆分"""

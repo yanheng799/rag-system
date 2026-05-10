@@ -33,6 +33,10 @@ class VectorStorePort(ABC):
     def delete_by_doc_id(self, doc_id: str) -> None:
         """按文档 ID 删除所有相关向量记录"""
 
+    @abstractmethod
+    def fetch_by_group_ids(self, group_ids: list[str]) -> list[dict]:
+        """按 group_id 批量查询所有关联分块"""
+
 
 class DocumentStorePort(ABC):
     """文档/分块数据库接口"""
