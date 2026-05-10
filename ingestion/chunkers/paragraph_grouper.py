@@ -204,6 +204,16 @@ def _split_group_by_size(
                 current.append(elem)
                 current_size += elem_size
                 continue
+            # 表格标题保护：末尾短文本 + 紧跟表格 → 标题随表格进入新分组
+            if elem.is_table and len(current) >= 1:
+                last_cur = current[-1]
+                if len(last_cur.content) < 30 and not is_heading_element(last_cur):
+                    caption = current.pop()
+                    current_size -= len(caption.content)
+                    sub_groups.append(current)
+                    current = [caption, elem]
+                    current_size = len(caption.content) + elem_size
+                    continue
             sub_groups.append(current)
             current = [elem]
             current_size = elem_size
