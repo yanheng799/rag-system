@@ -15,7 +15,7 @@ class RetrieveRequest(BaseModel):
 class DebugChunkMetadata(BaseModel):
     chunk_id: str
     chunk_type: str
-    source: str
+    filename: str
     page: int
     pages: list[int] = []
     chunk_index: int

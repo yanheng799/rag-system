@@ -19,7 +19,7 @@ class ElementSchema(BaseModel):
 class ChunkMetadataSchema(BaseModel):
     chunk_id: str
     chunk_type: str
-    source: str
+    filename: str
     page: int
     chunk_index: int
     char_count: int

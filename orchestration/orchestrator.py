@@ -146,6 +146,7 @@ class RAGOrchestrator:
 
             metadata = chunk.metadata.to_dict()
             metadata["score"] = chunk.score
+            metadata["filename"] = metadata.pop("source")
 
             sources.append({
                 "metadata": metadata,

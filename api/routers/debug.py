@@ -51,7 +51,9 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
     # 构建响应
     debug_chunks = []
     for idx, chunk in enumerate(chunks, 1):
-        metadata = DebugChunkMetadata(**chunk.metadata.to_dict())
+        meta_dict = chunk.metadata.to_dict()
+        meta_dict["filename"] = meta_dict.pop("source")
+        metadata = DebugChunkMetadata(**meta_dict)
 
         image_urls = []
         for url in chunk.image_urls:
