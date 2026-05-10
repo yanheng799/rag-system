@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 class WordParser(BaseParser):
     """使用 python-docx 解析 Word 文档"""
 
+    def __init__(self, extract_images: bool = True):
+        self._do_extract_images = extract_images
+
     def parse(self, file_path: str) -> list[ParsedElement]:
         try:
             doc = Document(file_path)
@@ -23,6 +26,21 @@ class WordParser(BaseParser):
 
         elements: list[ParsedElement] = []
         position = 0  # 文档中的顺序位置
+
+        # 预加载图片关系映射
+        image_rels = {}
+        if self._do_extract_images:
+            for rel in doc.part.rels.values():
+                if "image" in rel.reltype:
+                    try:
+                        blob = rel.target_part.blob
+                        ct = rel.target_part.content_type
+                        ext = self._content_type_to_ext(ct)
+                        image_rels[rel.rId] = {"blob": blob, "ext": ext}
+                    except Exception:
+                        continue
+
+        img_index = 0
 
         for element in doc.element.body:
             tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
@@ -35,19 +53,53 @@ class WordParser(BaseParser):
                         para = p
                         break
 
-                if para and para.text.strip():
-                    text = para.text.strip()
-                    elem_type = self._detect_paragraph_type(para)
-                    elements.append(
-                        ParsedElement(
-                            elem_type=elem_type,
-                            content=text,
-                            page=1,  # Word 无精确页码概念
-                            bbox=(0, position, 0, position + 1),
-                            style=self._extract_paragraph_style(para),
+                if para:
+                    # 检测段落中的图片
+                    if self._do_extract_images:
+                        drawings = element.findall(
+                            ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing"
                         )
-                    )
-                    position += 1
+                        for _ in drawings:
+                            blips = element.findall(
+                                ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+                            )
+                            for blip in blips:
+                                rid = blip.get(
+                                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+                                )
+                                if rid and rid in image_rels:
+                                    img_info = image_rels[rid]
+                                    filename = f"img_{img_index}.{img_info['ext']}"
+                                    elements.append(
+                                        ParsedElement(
+                                            elem_type="image",
+                                            content=f"[图片: {filename}]",
+                                            page=1,
+                                            bbox=(0, position, 0, position + 1),
+                                            style={"para_index": position},
+                                            raw={
+                                                "ext": img_info["ext"],
+                                                "filename": filename,
+                                                "image_bytes": img_info["blob"],
+                                            },
+                                        )
+                                    )
+                                    img_index += 1
+                                    position += 1
+
+                    if para.text.strip():
+                        text = para.text.strip()
+                        elem_type = self._detect_paragraph_type(para)
+                        elements.append(
+                            ParsedElement(
+                                elem_type=elem_type,
+                                content=text,
+                                page=1,
+                                bbox=(0, position, 0, position + 1),
+                                style=self._extract_paragraph_style(para),
+                            )
+                        )
+                        position += 1
 
             elif tag == "tbl":
                 # 表格处理
@@ -107,6 +159,17 @@ class WordParser(BaseParser):
             if i == 0:
                 md_lines.append("|" + "|".join("---" for _ in cells) + "|")
         return "\n".join(md_lines)
+
+    @staticmethod
+    def _content_type_to_ext(content_type: str) -> str:
+        mapping = {
+            "image/png": "png",
+            "image/jpeg": "jpg",
+            "image/gif": "gif",
+            "image/bmp": "bmp",
+            "image/tiff": "tiff",
+        }
+        return mapping.get(content_type, "png")
 
     def supported_types(self) -> list[str]:
         return ["docx"]

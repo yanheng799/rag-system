@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 class PDFParser(BaseParser):
-    """使用 pymupdf 解析 PDF 文档，提取文字块和表格"""
+    """使用 pymupdf 解析 PDF 文档，提取文字块、表格和图片"""
+
+    def __init__(self, extract_images: bool = True):
+        self._do_extract_images = extract_images
 
     def parse(self, file_path: str) -> list[ParsedElement]:
         try:
@@ -42,6 +45,14 @@ class PDFParser(BaseParser):
             page_sizes[page_num] = (page.rect.width, page.rect.height)
             layout = detect_page_layout(page)
             elements.extend(self._parse_page(page, page_num, layout, hf_zones))
+
+        # 提取图片（需在 doc 关闭前）
+        if self._do_extract_images:
+            img_elements = self._extract_images(doc, page_sizes)
+            elements.extend(img_elements)
+
+        # 图片追加在末尾，需按页码+y坐标重新排序以正确插入
+        elements.sort(key=lambda e: (e.page, e.bbox[1], e.bbox[0]))
 
         doc.close()
 
@@ -222,6 +233,110 @@ class PDFParser(BaseParser):
         if y0 < page_height * 0.08 or y0 > page_height * 0.90:
             return True
         return False
+
+    def _extract_images(
+        self,
+        doc: fitz.Document,
+        page_sizes: dict[int, tuple[float, float]],
+    ) -> list[ParsedElement]:
+        """提取 PDF 中内嵌的实质图片（过滤小图标和表格内图片）"""
+        from ingestion.table_processor.image_extractor import (
+            MIN_IMAGE_AREA_RATIO,
+            MIN_IMAGE_DIMENSION,
+        )
+
+        elements: list[ParsedElement] = []
+        img_global_index = 0
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_area = page.rect.width * page.rect.height
+
+            # 收集该页表格 bbox 用于排除表格内图片
+            tables = page.find_tables()
+            table_bboxes = [tuple(t.bbox) for t in tables]
+
+            image_infos = page.get_image_info(xrefs=True)
+            image_list = page.get_images(full=True)
+
+            # 建立 xref → info 映射
+            xref_map: dict[int, dict] = {}
+            for info in image_infos:
+                xref = info.get("xref", 0)
+                if xref > 0:
+                    xref_map[xref] = info
+
+            page_img_idx = 0
+            seen_xrefs: set[int] = set()
+
+            for img_ref in image_list:
+                xref = img_ref[0]
+                if xref == 0 or xref in seen_xrefs:
+                    continue
+                seen_xrefs.add(xref)
+
+                info = xref_map.get(xref)
+                if not info:
+                    continue
+
+                bbox = info.get("bbox", (0, 0, 0, 0))
+                w = info.get("width", 0)
+                h = info.get("height", 0)
+
+                # 过滤小图标
+                if w < MIN_IMAGE_DIMENSION or h < MIN_IMAGE_DIMENSION:
+                    continue
+
+                # 过滤面积占比过小
+                bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                if page_area > 0 and bbox_area / page_area < MIN_IMAGE_AREA_RATIO:
+                    continue
+
+                # 过滤与表格重叠
+                overlaps = False
+                for tb in table_bboxes:
+                    ix0 = max(bbox[0], tb[0])
+                    iy0 = max(bbox[1], tb[1])
+                    ix1 = min(bbox[2], tb[2])
+                    iy1 = min(bbox[3], tb[3])
+                    if ix0 < ix1 and iy0 < iy1:
+                        inter = (ix1 - ix0) * (iy1 - iy0)
+                        if bbox_area > 0 and inter / bbox_area > 0.5:
+                            overlaps = True
+                            break
+                if overlaps:
+                    continue
+
+                # 提取图片数据
+                try:
+                    img_data = doc.extract_image(xref)
+                except Exception:
+                    continue
+                if not img_data or not img_data.get("image"):
+                    continue
+
+                ext = img_data.get("ext", "png")
+                filename = f"img_p{page_num + 1}_{page_img_idx}.{ext}"
+
+                elements.append(
+                    ParsedElement(
+                        elem_type="image",
+                        content=f"[图片: {filename}]",
+                        page=page_num,
+                        bbox=tuple(bbox),
+                        style={"width": w, "height": h},
+                        raw={
+                            "image_bytes": img_data["image"],
+                            "ext": ext,
+                            "filename": filename,
+                        },
+                    )
+                )
+                page_img_idx += 1
+                img_global_index += 1
+
+        logger.info("PDF 图片提取: %d 张", len(elements))
+        return elements
 
     def supported_types(self) -> list[str]:
         return ["pdf"]
