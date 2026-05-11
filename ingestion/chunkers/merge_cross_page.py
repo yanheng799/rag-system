@@ -73,12 +73,18 @@ def merge_cross_page_tables(
         if idx_a in merged_away:
             continue
 
+        # 追踪合并后的有效末页，支持多页连续合并
+        last_page_a = elem_a.page
+        last_page_a_y1 = elem_a.bbox[3]
+
         for tj in range(ti + 1, len(tables)):
             idx_b, elem_b = tables[tj]
             if idx_b in merged_away:
                 continue
 
-            if not _is_cross_page_continuation(elem_a, elem_b, page_sizes):
+            if not _is_cross_page_continuation(
+                elem_a, elem_b, page_sizes, last_page_a, last_page_a_y1
+            ):
                 continue
 
             # 列数匹配
@@ -115,6 +121,8 @@ def merge_cross_page_tables(
             merged_pages.append({"page": elem_b.page, "bbox": tuple(elem_b.bbox)})
 
             merged_away.add(idx_b)
+            last_page_a = elem_b.page
+            last_page_a_y1 = elem_b.bbox[3]
             logger.info(
                 "跨页表格合并: page %d + page %d (列数=%d)",
                 elem_a.page,
@@ -132,13 +140,20 @@ def _is_cross_page_continuation(
     elem_a: ParsedElement,
     elem_b: ParsedElement,
     page_sizes: dict[int, tuple[float, float]],
+    last_page_a: int | None = None,
+    last_page_a_bbox_y1: float | None = None,
 ) -> bool:
-    """判断 elem_b 是否是 elem_a 的跨页续表。"""
-    # 页码必须相邻
-    if elem_b.page != elem_a.page + 1:
+    """判断 elem_b 是否是 elem_a 的跨页续表。
+
+    last_page_a: 合并后 elem_a 的有效末页页码（用于多页连续合并）。
+    last_page_a_bbox_y1: 有效末页表格的 y1 坐标（用于判断末页表格是否到底）。
+    """
+    # 页码必须相邻（用有效末页判断，而非 elem_a 原始页码）
+    effective_page_a = last_page_a if last_page_a is not None else elem_a.page
+    if elem_b.page != effective_page_a + 1:
         return False
 
-    size_a = page_sizes.get(elem_a.page)
+    size_a = page_sizes.get(effective_page_a)
     size_b = page_sizes.get(elem_b.page)
     if not size_a or not size_b:
         return False
@@ -146,8 +161,10 @@ def _is_cross_page_continuation(
     _, height_a = size_a
     _, height_b = size_b
 
+    # 末页表格的 y1（多页合并时用最后一页的 y1，否则用 elem_a 原始 y1）
+    a_y1 = last_page_a_bbox_y1 if last_page_a_bbox_y1 is not None else elem_a.bbox[3]
     # 表 A 接近页底（y1 > 页面高度 × 0.85）
-    if elem_a.bbox[3] < height_a * 0.85:
+    if a_y1 < height_a * 0.85:
         return False
 
     # 表 B 接近页顶（y0 < 页面高度 × 0.15）
