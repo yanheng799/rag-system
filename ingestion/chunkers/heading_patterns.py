@@ -12,6 +12,8 @@ COMPILED_HEADING_PATTERNS: list[re.Pattern] = [
     re.compile(r"^第[一二三四五六七八九十百千\d]+[条款]\s*.*"),
     # 编号标题（如 "3.2 排序算法"、"3、施工要求"）
     re.compile(r"^\d+[\.\、]\s*\S+.*"),
+    # 一级编号标题（如 "3 项目管理"）
+    re.compile(r"^\d+\s+\S+.*"),
     # 子编号标题（如 "3.2.1 数据采集"）
     re.compile(r"^\d+\.\d+\s+\S+.*"),
     # 英文章节

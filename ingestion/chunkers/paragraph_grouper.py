@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_section_heading
+from ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_heading_combined, is_section_heading
 from ingestion.parsers.base import ParsedElement
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,10 @@ def is_new_paragraph_boundary(
         return True
 
     # 章节标题始终开始新段落（标题吸收下方内容，但不合并到上一个段落）
+    # 同时检查：严格正则匹配 或 文档样式标记为标题且内容匹配编号模式
     if is_section_heading(elem.content):
+        return True
+    if elem.is_title and is_heading_by_pattern(elem.content):
         return True
 
     last = group[-1]

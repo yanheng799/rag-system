@@ -54,38 +54,36 @@ class WordParser(BaseParser):
                         break
 
                 if para:
-                    # 检测段落中的图片
+                    # 检测段落中的图片（按 rId 去重，同一图片只提取一次）
                     if self._do_extract_images:
-                        drawings = element.findall(
-                            ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing"
+                        seen_rids: set[str] = set()
+                        blips = element.findall(
+                            ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
                         )
-                        for _ in drawings:
-                            blips = element.findall(
-                                ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+                        for blip in blips:
+                            rid = blip.get(
+                                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
                             )
-                            for blip in blips:
-                                rid = blip.get(
-                                    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-                                )
-                                if rid and rid in image_rels:
-                                    img_info = image_rels[rid]
-                                    filename = f"img_{img_index}.{img_info['ext']}"
-                                    elements.append(
-                                        ParsedElement(
-                                            elem_type="image",
-                                            content=f"[图片: {filename}]",
-                                            page=1,
-                                            bbox=(0, position, 0, position + 1),
-                                            style={"para_index": position},
-                                            raw={
-                                                "ext": img_info["ext"],
-                                                "filename": filename,
-                                                "image_bytes": img_info["blob"],
-                                            },
-                                        )
+                            if rid and rid not in seen_rids and rid in image_rels:
+                                seen_rids.add(rid)
+                                img_info = image_rels[rid]
+                                filename = f"img_{img_index}.{img_info['ext']}"
+                                elements.append(
+                                    ParsedElement(
+                                        elem_type="image",
+                                        content=f"[图片: {filename}]",
+                                        page=1,
+                                        bbox=(0, position, 0, position + 1),
+                                        style={"para_index": position},
+                                        raw={
+                                            "ext": img_info["ext"],
+                                            "filename": filename,
+                                            "image_bytes": img_info["blob"],
+                                        },
                                     )
-                                    img_index += 1
-                                    position += 1
+                                )
+                                img_index += 1
+                                position += 1
 
                     if para.text.strip():
                         text = para.text.strip()

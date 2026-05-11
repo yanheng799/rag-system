@@ -94,12 +94,16 @@ def merge_cross_page_tables(
                 if row.strip():
                     merged_content += "\n" + row
 
-            # 更新表 A
+            # 更新表 A（y1 取第一页高度，避免跨页坐标混合导致 y0 > y1）
+            size_a = page_sizes.get(elem_a.page)
+            if not size_a:
+                continue
+            _, height_a = size_a
             new_bbox = (
                 min(elem_a.bbox[0], elem_b.bbox[0]),
                 elem_a.bbox[1],
                 max(elem_a.bbox[2], elem_b.bbox[2]),
-                elem_b.bbox[3],
+                height_a,
             )
             elem_a.content = merged_content
             elem_a.bbox = new_bbox
@@ -174,10 +178,12 @@ def merge_cross_column_tables(
         if len(tables) < 2:
             continue
 
-        # 获取页面宽度
+        # 获取页面尺寸
         page_width = None
+        page_height = None
         if page_sizes and page in page_sizes:
             page_width = page_sizes[page][0]
+            page_height = page_sizes[page][1]
 
         if not page_width:
             # 从元素 bbox 推算
@@ -196,7 +202,7 @@ def merge_cross_column_tables(
                 if idx_b in merged_away:
                     continue
 
-                if not _is_cross_column_pair(elem_a, elem_b, mid, page_width):
+                if not _is_cross_column_pair(elem_a, elem_b, mid, page_width, page_height):
                     continue
 
                 # 列数匹配
@@ -240,6 +246,7 @@ def _is_cross_column_pair(
     elem_b: ParsedElement,
     mid: float,
     page_width: float,
+    page_height: float | None = None,
 ) -> bool:
     """判断两个表格是否为同一表格被双栏拆分的左右两部分。"""
     # 一个在中线左侧，一个在中线右侧
@@ -252,12 +259,10 @@ def _is_cross_column_pair(
     if a_is_left == b_is_left:
         return False
 
-    # 确保 a 是左侧，b 是右侧
-    # (不需要交换，因为后续只是合并)
-
-    # y 坐标相近（y 差值 < 页面高度 × 0.1）
+    # y 坐标相近（y 差值 < 页面纵向尺寸 × 0.1）
     y_diff = abs(elem_a.bbox[1] - elem_b.bbox[1])
-    if y_diff > page_width * 0.1:
+    tolerance = (page_height or page_width) * 0.1
+    if y_diff > tolerance:
         return False
 
     return True

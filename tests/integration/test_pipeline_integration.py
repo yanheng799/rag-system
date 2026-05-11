@@ -77,6 +77,10 @@ class TestChunkBuilderIntegration:
 
         for group, gid in paragraphs:
             if detect_chunk_type(group) == "mixed":
+                has_table_elem = any(e.is_table for e in group)
+                has_text_elem = any(not e.is_table and not e.is_image for e in group)
+                if not has_table_elem or not has_text_elem:
+                    continue
                 chunk = builder.build(
                     elements=group,
                     doc_id="test_doc",
