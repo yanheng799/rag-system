@@ -104,6 +104,8 @@ class IngestionPipeline:
             chunks: list[MixedChunk] = []
             # 按 page 分组计数 chunk_index
             page_chunk_counters: dict[int, int] = {}
+            # 按 page 计数图片索引，避免不同段落组的同名图片互相覆盖
+            page_img_counters: dict[int, int] = {}
 
             for para_group, group_id in paragraphs:
                 # 使用第一个元素的 page 作为 chunk 的 page
@@ -112,7 +114,7 @@ class IngestionPipeline:
                 page_chunk_counters[page] = chunk_index + 1
 
                 # 上传图片元素至 MinIO（parser 只提取了 bytes，上传在此完成）
-                img_counter = 0
+                img_counter = page_img_counters.get(page, 0)
                 for elem in para_group:
                     if elem.is_image and elem.raw and isinstance(elem.raw, dict):
                         if "oss_path" not in elem.raw and "image_bytes" in elem.raw:
@@ -126,6 +128,7 @@ class IngestionPipeline:
                             )
                             elem.raw["oss_path"] = oss_path
                             img_counter += 1
+                page_img_counters[page] = img_counter
 
                 pdf_path = file_path if file_type == "pdf" else None
                 chunk = self._chunk_builder.build(
