@@ -73,6 +73,24 @@ class ChunkBuilder:
                     except Exception as e:
                         logger.warning("表格截图失败: %s", e)
 
+                    # 跨页合并表格：为每个被合并的续页各截一张
+                    if elem.raw and isinstance(elem.raw, dict):
+                        for mp in elem.raw.get("_merged_pages", []):
+                            try:
+                                mp_url = self._screenshot.capture_pdf_table(
+                                    pdf_path=pdf_path,
+                                    page_num=mp["page"],
+                                    bbox=tuple(mp["bbox"]),
+                                    doc_id=doc_id,
+                                    table_index=table_counter,
+                                )
+                                image_urls.append(mp_url)
+                            except Exception as e:
+                                logger.warning(
+                                    "续页表格截图失败: page %d, %s",
+                                    mp["page"], e,
+                                )
+
                 content_elements.append(
                     ContentElement(
                         type="table",

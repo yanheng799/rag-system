@@ -108,6 +108,12 @@ def merge_cross_page_tables(
             elem_a.content = merged_content
             elem_a.bbox = new_bbox
 
+            # 记录被合并页信息，供截图时为每页各截一张
+            if not isinstance(elem_a.raw, dict):
+                elem_a.raw = {}
+            merged_pages = elem_a.raw.setdefault("_merged_pages", [])
+            merged_pages.append({"page": elem_b.page, "bbox": tuple(elem_b.bbox)})
+
             merged_away.add(idx_b)
             logger.info(
                 "跨页表格合并: page %d + page %d (列数=%d)",
