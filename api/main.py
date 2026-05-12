@@ -8,7 +8,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from api.middleware.error_handler import ErrorHandlerMiddleware
-from api.routers import debug, documents, query
+from api.routers import datasets, debug, documents, query
 from config.settings import settings
 from ingestion.embedder import Embedder
 from ingestion.parsers.registry import init_parsers
@@ -115,6 +115,7 @@ app = FastAPI(
 app.add_middleware(ErrorHandlerMiddleware)
 
 # 路由注册
+app.include_router(datasets.router)
 app.include_router(documents.router)
 app.include_router(query.router)
 app.include_router(debug.router)

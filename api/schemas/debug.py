@@ -10,6 +10,9 @@ class RetrieveRequest(BaseModel):
     top_k: int = Field(default=10, ge=1, le=50)
     search_mode: Literal["vector", "bm25", "hybrid"] = "vector"
     show_prompt: bool = False
+    dataset_ids: Optional[list[str]] = None
+    doc_ids: Optional[list[str]] = None
+    doc_names: Optional[list[str]] = None
 
 
 class DebugChunkMetadata(BaseModel):

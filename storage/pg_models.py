@@ -6,6 +6,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -13,17 +14,43 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class DatasetORM(Base):
+    __tablename__ = "rag_datasets"
+
+    dataset_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    documents: Mapped[list["DocumentORM"]] = relationship(
+        back_populates="dataset", passive_deletes=True
+    )
+
+    __table_args__ = (
+        Index("idx_datasets_created_at", created_at.desc()),
+    )
+
+
 class DocumentORM(Base):
     __tablename__ = "rag_documents"
 
     doc_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dataset_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("rag_datasets.dataset_id", ondelete="CASCADE")
+    )
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     raw_file_url: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -40,10 +67,13 @@ class DocumentORM(Base):
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    dataset: Mapped["DatasetORM"] = relationship(back_populates="documents")
+
     __table_args__ = (
         Index("idx_documents_status", "status"),
         Index("idx_documents_created_by", "created_by"),
         Index("idx_documents_uploaded_at", uploaded_at.desc()),
+        Index("idx_documents_dataset_id", "dataset_id"),
     )
 
 

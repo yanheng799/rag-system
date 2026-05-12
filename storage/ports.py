@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from models.chunks import RetrievedChunk
-from models.documents import ChunkRecord, DocumentRecord, QueryLogRecord
+from models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord
 
 
 class VectorStorePort(ABC):
@@ -86,6 +86,57 @@ class DocumentStorePort(ABC):
     @abstractmethod
     async def save_query_log(self, log: QueryLogRecord) -> None:
         """保存查询日志"""
+
+    # 数据集管理
+
+    @abstractmethod
+    async def create_dataset(
+        self,
+        dataset_id: str,
+        name: str,
+        description: Optional[str] = None,
+        created_by: Optional[str] = None,
+    ) -> DatasetRecord:
+        """创建数据集"""
+
+    @abstractmethod
+    async def get_dataset(self, dataset_id: str) -> Optional[DatasetRecord]:
+        """查询数据集"""
+
+    @abstractmethod
+    async def list_datasets(
+        self, page: int = 1, size: int = 20
+    ) -> tuple[list[DatasetRecord], int]:
+        """分页查询数据集列表，返回 (记录列表, 总数)"""
+
+    @abstractmethod
+    async def update_dataset(
+        self,
+        dataset_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Optional[DatasetRecord]:
+        """更新数据集名称或描述"""
+
+    @abstractmethod
+    async def delete_document(self, doc_id: str) -> bool:
+        """删除文档记录"""
+
+    @abstractmethod
+    async def delete_dataset(self, dataset_id: str) -> bool:
+        """删除数据集（不含级联逻辑，由路由层处理）"""
+
+    @abstractmethod
+    async def count_docs_by_dataset(self, dataset_id: str) -> int:
+        """统计数据集下文档数量"""
+
+    @abstractmethod
+    async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
+        """按数据集 ID 列表查询关联的文档 ID"""
+
+    @abstractmethod
+    async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]:
+        """按文件名模糊匹配查询文档 ID"""
 
 
 class ObjectStorePort(ABC):

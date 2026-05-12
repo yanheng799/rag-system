@@ -15,6 +15,7 @@ class DocumentRecord:
     filename: str
     raw_file_url: str
     content_hash: Optional[str] = None
+    dataset_id: Optional[str] = None
     file_size: Optional[int] = None
     file_type: Optional[str] = None  # pdf | docx | xlsx
     status: str = "pending"  # pending | processing | done | failed
@@ -22,6 +23,18 @@ class DocumentRecord:
     retry_count: int = 0
     created_by: Optional[str] = None
     uploaded_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+@dataclass
+class DatasetRecord:
+    """数据集记录"""
+
+    dataset_id: str
+    name: str
+    description: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
 

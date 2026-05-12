@@ -46,6 +46,9 @@ def is_new_paragraph_boundary(
         return True
     if elem.is_title and is_heading_by_pattern(elem.content):
         return True
+    # 文档样式标记为标题 → 始终触发新边界（处理无编号标题）
+    if elem.is_title:
+        return True
 
     last = group[-1]
 

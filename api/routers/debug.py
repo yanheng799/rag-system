@@ -32,9 +32,23 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         raise HTTPException(status_code=503, detail=f"{body.search_mode} 检索服务未就绪")
 
     start_time = time.time()
+
+    # 解析过滤参数
+    filters = None
+    if body.dataset_ids or body.doc_ids or body.doc_names:
+        from api.routers.query import resolve_filters
+
+        filters = await resolve_filters(
+            request.app.state.pg_store,
+            body.dataset_ids,
+            body.doc_ids,
+            body.doc_names,
+        )
+
     chunks = searcher.search(
         question=body.question,
         top_k=body.top_k,
+        filters=filters,
     )
     retrieval_ms = int((time.time() - start_time) * 1000)
 
@@ -48,12 +62,24 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         prompt_text = messages[1]["content"] if len(messages) > 1 else ""
 
     signed_url_service = request.app.state.signed_url_service
+    pg_store = request.app.state.pg_store
+
+    # 批量查询文档的真实 filename
+    unique_doc_ids = list({c.metadata.doc_id for c in chunks})
+    doc_filename_map: dict[str, str] = {}
+    for did in unique_doc_ids:
+        doc = await pg_store.get_document(did)
+        if doc:
+            doc_filename_map[did] = doc.filename
 
     # 构建响应
     debug_chunks = []
     for idx, chunk in enumerate(chunks, 1):
         meta_dict = chunk.metadata.to_dict()
-        meta_dict["filename"] = meta_dict.pop("source")
+        meta_dict.pop("source", None)
+        meta_dict["filename"] = doc_filename_map.get(
+            chunk.metadata.doc_id, chunk.metadata.source
+        )
         metadata = DebugChunkMetadata(**meta_dict)
 
         image_urls = []

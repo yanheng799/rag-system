@@ -257,12 +257,17 @@ class TestParagraphBoundary:
         elem = ParsedElement(elem_type="text", content="hello", page=0)
         assert is_new_paragraph_boundary(elem, []) is True
 
-    def test_title_does_not_split(self):
-        """标题不再作为段落边界 — 标题与下方内容合并"""
-        elem = ParsedElement(elem_type="title", content="标题", page=0, bbox=(0, 20, 100, 30))
+    def test_title_triggers_boundary(self):
+        """标题始终触发段落边界 — 无编号标题也触发"""
+        elem = ParsedElement(elem_type="title", content="Φ杆", page=0, bbox=(0, 20, 100, 30))
         group = [ParsedElement(elem_type="text", content="上文", page=0, bbox=(0, 0, 100, 10))]
-        # 标题紧跟上文（间距小），不拆分
-        assert is_new_paragraph_boundary(elem, group) is False
+        assert is_new_paragraph_boundary(elem, group) is True
+
+    def test_title_without_number_triggers_boundary(self):
+        """无编号标题（纯中文）仍触发边界"""
+        elem = ParsedElement(elem_type="title", content="安装和拆卸", page=0)
+        group = [ParsedElement(elem_type="text", content="一些内容", page=0)]
+        assert is_new_paragraph_boundary(elem, group) is True
 
     def test_same_page_close_position_not_boundary(self):
         group = [ParsedElement(elem_type="text", content="上文", page=0, bbox=(0, 0, 100, 10))]

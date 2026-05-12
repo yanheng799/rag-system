@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class UploadResponse(BaseModel):
     doc_id: str
     filename: str
+    dataset_id: Optional[str] = None
     status: str
     uploaded_at: str
 

@@ -1,7 +1,7 @@
 # RAG 系统开发任务清单
 
-> 基于《RAG 系统整体设计文档 v1.6》拆解
-> 版本：v1.3 | 状态：Phase 1 开发中
+> 基于《RAG 系统整体设计文档 v1.7》拆解
+> 版本：v1.4 | 状态：Phase 2 开发中
 
 ---
 
@@ -1880,6 +1880,419 @@ class RetrievalPipeline:
 
 ---
 
+### TASK-053｜数据集存储层 — 数据模型 + Store 层
+
+**模块**：存储层 - PostgreSQL
+**优先级**：P0
+**前置**：TASK-002
+**描述**：新增 `rag_datasets` 表管理数据集元数据（名称全局唯一），`rag_documents` 表增加可空 `dataset_id` 外键关联数据集。Milvus Schema 不变——检索过滤通过 PG 解析数据集到 doc_ids 再注入 Milvus `doc_id in [...]` 过滤条件。
+
+**PostgreSQL DDL**：
+
+```sql
+-- 数据集表
+CREATE TABLE rag_datasets (
+    dataset_id    VARCHAR(64)   PRIMARY KEY,
+    name          VARCHAR(256)  NOT NULL UNIQUE,   -- 数据集名称，全局唯一
+    description   TEXT,
+    created_by    VARCHAR(64),
+    created_at    TIMESTAMP     NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_datasets_created_at ON rag_datasets(created_at DESC);
+
+-- rag_documents 增加数据集关联（可空，允许裸文档）
+ALTER TABLE rag_documents ADD COLUMN dataset_id VARCHAR(64) REFERENCES rag_datasets(dataset_id) ON DELETE CASCADE;
+CREATE INDEX idx_documents_dataset_id ON rag_documents(dataset_id);
+```
+
+**ORM 模型**：
+
+```python
+# storage/pg_models.py 新增
+
+class DatasetORM(Base):
+    __tablename__ = "rag_datasets"
+
+    dataset_id = Column(String(64), primary_key=True)
+    name = Column(String(256), nullable=False, unique=True)
+    description = Column(Text)
+    created_by = Column(String(64))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    documents = relationship("DocumentORM", back_populates="dataset", passive_deletes=True)
+```
+
+**DocumentORM 更新**：
+
+```python
+# storage/pg_models.py 修改
+
+class DocumentORM(Base):
+    # ... 已有字段 ...
+    dataset_id = Column(String(64), ForeignKey("rag_datasets.dataset_id", ondelete="CASCADE"))
+
+    dataset = relationship("DatasetORM", back_populates="documents")
+```
+
+**DocumentStorePort 接口新增**：
+
+```python
+# storage/ports.py DocumentStorePort 新增方法
+
+class DocumentStorePort(ABC):
+    # ... 已有方法 ...
+
+    @abstractmethod
+    async def create_dataset(self, dataset_id: str, name: str, description: str = None, created_by: str = None) -> dict: ...
+
+    @abstractmethod
+    async def get_dataset(self, dataset_id: str) -> dict | None: ...
+
+    @abstractmethod
+    async def list_datasets(self, page: int = 1, size: int = 20) -> tuple[list[dict], int]: ...
+
+    @abstractmethod
+    async def update_dataset(self, dataset_id: str, name: str = None, description: str = None) -> dict | None: ...
+
+    @abstractmethod
+    async def delete_dataset(self, dataset_id: str) -> bool: ...
+
+    @abstractmethod
+    async def count_docs_by_dataset(self, dataset_id: str) -> int: ...
+
+    @abstractmethod
+    async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str]) -> list[str]: ...
+
+    @abstractmethod
+    async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]: ...
+```
+
+**涉及改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `alembic/versions/` | 新增迁移：创建 `rag_datasets` 表，`rag_documents` 增加 `dataset_id` 列 + 索引 |
+| `storage/pg_models.py` | 新增 `DatasetORM`，`DocumentORM` 增加 `dataset_id` 字段和 relationship |
+| `storage/pg_store.py` | 实现 `DocumentStorePort` 新增的数据集方法 + 文档名模糊查询方法 |
+| `storage/ports.py` | `DocumentStorePort` 新增数据集相关抽象方法 |
+
+**验证**：
+1. `alembic upgrade head` 成功创建 `rag_datasets` 表和索引
+2. `rag_datasets.name` 的 UNIQUE 约束生效（重复名称插入报错）
+3. `rag_documents` 表新增 `dataset_id` 列，外键约束生效
+4. `dataset_id=NULL` 的文档可正常插入（裸文档）
+
+**交付物**：Alembic 迁移文件 + ORM 模型更新 + Store 层实现
+
+---
+
+### TASK-054｜数据集 CRUD API
+
+**模块**：用户交互层 - 数据集管理
+**优先级**：P0
+**前置**：TASK-053
+**描述**：实现数据集的创建、查询、列表、更新、删除 REST API。删除时默认拒绝有文档的数据集，需传 `force=true` 确认后级联删除。
+
+**接口定义**：
+
+#### 创建数据集
+
+```
+POST /api/v1/datasets
+
+Request Body:
+{
+  "name":        "2024年输电线路工程",   // 必填，全局唯一
+  "description": "包含设计交底、杆塔明细等文档"  // 可选
+}
+
+Response 201:
+{
+  "dataset_id":  "ds_abc123",
+  "name":        "2024年输电线路工程",
+  "description": "包含设计交底、杆塔明细等文档",
+  "created_at":  "2024-01-15T10:30:00Z",
+  "updated_at":  "2024-01-15T10:30:00Z"
+}
+
+Response 409: 数据集名称已存在
+```
+
+#### 数据集列表
+
+```
+GET /api/v1/datasets?page=1&size=20
+
+Response 200:
+{
+  "total":  15,
+  "page":   1,
+  "size":   20,
+  "items": [
+    {
+      "dataset_id":  "ds_abc123",
+      "name":        "2024年输电线路工程",
+      "description": "包含设计交底、杆塔明细等文档",
+      "doc_count":   5,
+      "created_at":  "2024-01-15T10:30:00Z",
+      "updated_at":  "2024-01-20T14:00:00Z"
+    }
+  ]
+}
+```
+
+注意：`doc_count` 由列表接口实时 `COUNT` 查询，不在数据集表中存储。
+
+#### 数据集详情
+
+```
+GET /api/v1/datasets/{dataset_id}
+
+Response 200:
+{
+  "dataset_id":  "ds_abc123",
+  "name":        "2024年输电线路工程",
+  "description": "包含设计交底、杆塔明细等文档",
+  "doc_count":   5,
+  "created_at":  "2024-01-15T10:30:00Z",
+  "updated_at":  "2024-01-20T14:00:00Z"
+}
+
+Response 404: 数据集不存在
+```
+
+#### 更新数据集
+
+```
+PATCH /api/v1/datasets/{dataset_id}
+
+Request Body:
+{
+  "name":        "2024年输电线路工程（更新）",  // 可选
+  "description": "新增铁塔统计文档"            // 可选
+}
+
+Response 200:
+{
+  "dataset_id":  "ds_abc123",
+  "name":        "2024年输电线路工程（更新）",
+  "description": "新增铁塔统计文档",
+  "doc_count":   5,
+  "updated_at":  "2024-01-25T09:00:00Z"
+}
+
+Response 404: 数据集不存在
+Response 409: 新名称与其他数据集冲突
+```
+
+#### 删除数据集
+
+```
+DELETE /api/v1/datasets/{dataset_id}?force=false
+
+Response 200 (force=true):
+{ "message": "删除成功", "dataset_id": "ds_abc123" }
+
+Response 409 (force=false 且数据集下有文档):
+{ "detail": "数据集下还有 5 个文档，请先删除文档或使用 force=true" }
+
+Response 404: 数据集不存在
+```
+
+**删除级联逻辑**（仅 `force=true` 时执行）：
+1. 查询数据集下所有 `doc_id`
+2. 删除 Milvus 中这些 `doc_id` 的所有向量（`delete_by_doc_id`）
+3. 删除 OSS 中 `raw-docs`、`table-images`、`doc-images` 下的相关文件
+4. 删除 `rag_datasets` 记录（CASCADE 自动删除 `rag_documents` 和 `rag_chunks`）
+
+**Pydantic Schema**：
+
+```python
+# api/schemas/datasets.py
+
+class DatasetCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=256)
+    description: Optional[str] = None
+
+class DatasetUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=256)
+    description: Optional[str] = None
+
+class DatasetResponse(BaseModel):
+    dataset_id:  str
+    name:        str
+    description: Optional[str]
+    doc_count:   int
+    created_at:  datetime
+    updated_at:  datetime
+
+class DatasetListResponse(BaseModel):
+    total: int
+    page:  int
+    size:  int
+    items: list[DatasetResponse]
+```
+
+**交付物**：`api/routers/datasets.py`、`api/schemas/datasets.py`、`api/main.py`（注册路由）
+
+---
+
+### TASK-055｜文档上传支持数据集选择
+
+**模块**：用户交互层 + 摄入层
+**优先级**：P0
+**前置**：TASK-053、TASK-054、TASK-020
+**描述**：修改文档上传接口，增加可选的 `dataset_id` 参数。不传则为裸文档（无数据集归属），传入时校验数据集存在性。Milvus 无需变更。
+
+**接口变更**：
+
+```
+POST /api/v1/documents
+Content-Type: multipart/form-data
+
+Request:
+  file:        binary     必填，文件内容
+  dataset_id:  string     选填，目标数据集 ID（不传则为裸文档）
+
+Response 200:
+{
+  "doc_id":     "doc_abc123",
+  "dataset_id": "ds_abc123",    // null 表示裸文档
+  "filename":   "2024年销售报告.pdf",
+  "status":     "pending",
+  "uploaded_at": "2024-01-15T10:30:00Z"
+}
+
+Response 404: dataset_id 指定的数据集不存在
+```
+
+**涉及改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `api/routers/documents.py` | 上传接口新增 `dataset_id` 参数（可选 Form 字段），传入时校验数据集存在性 |
+| `api/schemas/documents.py` | `UploadResponse` 新增 `dataset_id` 可空字段 |
+| `storage/pg_store.py` | `save_document` 写入 `dataset_id` |
+
+**验证**：
+1. 创建数据集 → 上传文档到该数据集 → 查询文档 `dataset_id` 有值
+2. 上传文档不传 `dataset_id` → 文档 `dataset_id` 为 NULL
+3. 上传到不存在的 `dataset_id` → 返回 404
+
+**交付物**：修改上述文件
+
+---
+
+### TASK-056｜检索支持数据集 / 文档过滤
+
+**模块**：检索层 + 用户交互层
+**优先级**：P0
+**前置**：TASK-053、TASK-055
+**描述**：问答接口和调试检索接口支持 `dataset_ids`、`doc_ids`、`doc_names` 三个独立的过滤参数。过滤在 API 层通过 PostgreSQL 解析为 doc_id 列表，再注入 Milvus `doc_id in [...]` 过滤条件。检索层接口不变，只接收 `filters` 字典。
+
+**接口变更**：
+
+#### 问答接口
+
+```
+POST /api/v1/query
+
+Request Body:
+{
+  "question":    "杆塔型号 ZM3 的呼高是多少？",
+  "dataset_ids": ["ds_abc123", "ds_def456"],   // 可选，按数据集过滤
+  "doc_ids":     ["doc_001", "doc_002"],        // 可选，按文档 ID 过滤
+  "doc_names":   ["杆塔明细表"],                  // 可选，按文件名模糊匹配过滤
+  "top_k":       5
+}
+```
+
+三个过滤参数独立使用，可传 0~3 个。都不传则不过滤，搜全部。
+
+#### 调试检索接口
+
+```
+POST /api/v1/debug/retrieve
+
+Request Body:
+{
+  "question":    "杆塔型号 ZM3 的呼高是多少？",
+  "dataset_ids": ["ds_abc123"],   // 可选
+  "doc_ids":     [],              // 可选
+  "doc_names":   [],              // 可选
+  "top_k":       10,
+  "search_mode": "hybrid"
+}
+```
+
+**过滤解析流程**：
+
+```python
+# api/routers/query.py / debug.py
+
+async def resolve_filters(pg_store, dataset_ids, doc_ids, doc_names) -> dict | None:
+    """将业务过滤参数解析为 Milvus filters 字典"""
+    doc_id_list = []
+
+    if dataset_ids:
+        ids = await pg_store.get_doc_ids_by_dataset_ids(dataset_ids)
+        doc_id_list.extend(ids)
+
+    if doc_ids:
+        doc_id_list.extend(doc_ids)
+
+    if doc_names:
+        # PG 模糊匹配: filename LIKE '%keyword%'
+        ids = await pg_store.get_doc_ids_by_filenames(doc_names)
+        doc_id_list.extend(ids)
+
+    if not doc_id_list:
+        return None  # 不过滤
+
+    return {"doc_id": list(set(doc_id_list))}  # 去重
+```
+
+**DocumentStorePort 新增方法**（TASK-053 已定义）：
+
+```python
+async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
+    """SELECT doc_id FROM rag_documents WHERE dataset_id IN (...)"""
+
+async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]:
+    """
+    SELECT doc_id FROM rag_documents
+    WHERE filename LIKE '%' || :name || '%'
+    支持模糊匹配
+    """
+```
+
+**涉及改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `api/schemas/query.py` | `QueryRequest` 新增 `dataset_ids`、`doc_ids`、`doc_names` 可选字段 |
+| `api/schemas/debug.py` | `RetrieveRequest` 新增 `dataset_ids`、`doc_ids`、`doc_names` 可选字段 |
+| `api/routers/query.py` | 调用 `resolve_filters` 将过滤参数转为 filters，传递给 orchestrator |
+| `api/routers/debug.py` | 调用 `resolve_filters` 将过滤参数转为 filters，传递给 searcher |
+
+**检索层无需改动**：`VectorSearcher`、`BM25Searcher`、`HybridSearcher` 已支持 `filters` 参数，MilvusStore 已支持 `filters={"doc_id": [...]}` 生成 `doc_id in [...]` 表达式。
+
+**验证**：
+1. 上传 2 个文档到数据集 A，上传 1 个文档到数据集 B，上传 1 个裸文档
+2. 查询 `dataset_ids=["A"]` → 只召回数据集 A 的分块
+3. 查询 `doc_ids=["doc_001"]` → 只召回指定文档的分块
+4. 查询 `doc_names=["杆塔"]` → 召回文件名含"杆塔"的文档分块
+5. 查询 `dataset_ids=["A", "B"]` → 召回两个数据集的分块
+6. 不传过滤参数 → 召回全部分块（含裸文档）
+7. debug/retrieve 接口验证三种 search_mode 均支持过滤
+
+**交付物**：修改上述文件
+
+---
+
 ## Phase 3：混合块能力完善
 
 > 目标：段落聚合、表格截图、MixedChunk 全链路打通（Phase 1 中已有基础实现，本阶段做完整测试和边界修复）
@@ -2721,6 +3134,12 @@ TASK-001（工程初始化）
 TASK-019 → TASK-020/021/022/023b（API 接口）
 TASK-029 → 更新 TASK-019
 
+数据集管理依赖链（Phase 2）：
+TASK-002 → TASK-053（数据集存储层：PG 表 + ORM + Store，Milvus 不变）
+TASK-053 → TASK-054（数据集 CRUD API，含 force 删除）
+TASK-053 + TASK-020 → TASK-055（文档上传支持可选 dataset_id）
+TASK-053 + TASK-055 → TASK-056（检索支持 dataset_ids / doc_ids / doc_names 过滤，PG 解析 → Milvus doc_id 过滤）
+
 安全 / 工程化依赖链：
 TASK-001 → TASK-044（JWT/API Key 鉴权）← Phase 5
 TASK-044 → TASK-045（ACL 权限过滤）← Phase 5
@@ -2738,6 +3157,7 @@ TASK-038 → TASK-046（动态参数配置）
 
 ---
 
-*共计 56 个开发任务（含新增 TASK-008d、TASK-051），覆盖 7 个 Phase。*
+*共计 60 个开发任务（含新增 TASK-008d、TASK-051~056），覆盖 7 个 Phase。*
 *Phase 1 按 Batch 1~5 顺序开发，使用 DashScope 云端 API 替代 vLLM 本地部署，同步摄入替代 Celery 异步队列。*
 *建议按 Phase 1 开发顺序分批提交，确保每个 Batch 的测试通过后再进入下一个 Batch。*
+*Phase 2 新增数据集管理功能（TASK-053~056），支持文档按数据集组织、检索时按数据集过滤。*

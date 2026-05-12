@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import os
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
+from typing import Optional
 
 from api.schemas.documents import DocumentStatusResponse, UploadResponse
 from ingestion.pipeline import generate_doc_id
@@ -22,6 +23,7 @@ def _compute_content_hash(data: bytes) -> str:
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
+    dataset_id: Optional[str] = Form(None),
 ):
     """上传文档，触发同步摄入流程。相同文件重复上传会覆盖旧数据。"""
     # 验证文件类型
@@ -44,13 +46,19 @@ async def upload_document(
             detail=f"文件过大，最大支持 {settings.max_file_size_mb}MB",
         )
 
-    # 计算文件内容哈希，用于去重
-    content_hash = _compute_content_hash(file_data)
-
     # 获取存储组件
     pg_store = request.app.state.pg_store
     oss_store = request.app.state.oss_store
     milvus_store = request.app.state.milvus_store
+
+    # 校验 dataset_id 有效性
+    if dataset_id:
+        ds = await pg_store.get_dataset(dataset_id)
+        if ds is None:
+            raise HTTPException(status_code=404, detail="数据集不存在")
+
+    # 计算文件内容哈希，用于去重
+    content_hash = _compute_content_hash(file_data)
 
     # 检查是否已有相同文件
     existing_doc = await pg_store.get_document_by_hash(content_hash)
@@ -83,6 +91,7 @@ async def upload_document(
 
         doc_record = DocumentRecord(
             doc_id=doc_id,
+            dataset_id=dataset_id,
             content_hash=content_hash,
             filename=filename,
             raw_file_url=f"raw-docs/{doc_id}/{filename}",
@@ -131,9 +140,40 @@ async def upload_document(
     return UploadResponse(
         doc_id=doc_id,
         filename=filename,
+        dataset_id=dataset_id,
         status="done",
         uploaded_at=uploaded_at,
     )
+
+
+@router.delete("/{doc_id}", summary="删除文档")
+async def delete_document(request: Request, doc_id: str):
+    """删除文档及其关联的向量、分块记录和 OSS 文件"""
+    pg_store = request.app.state.pg_store
+    milvus_store = request.app.state.milvus_store
+    oss_store = request.app.state.oss_store
+
+    doc = await pg_store.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 删除 Milvus 向量
+    milvus_store.delete_by_doc_id(doc_id)
+
+    # 删除 PG 分块记录
+    await pg_store.delete_chunks_by_doc(doc_id)
+
+    # 删除 OSS 原始文件
+    if doc.raw_file_url:
+        try:
+            oss_store.delete(doc.raw_file_url)
+        except Exception:
+            pass
+
+    # 删除 PG 文档记录
+    await pg_store.delete_document(doc_id)
+
+    return {"message": "删除成功", "doc_id": doc_id}
 
 
 @router.get(

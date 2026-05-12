@@ -1,6 +1,6 @@
 # RAG 系统整体设计文档
 
-> 版本：v1.6 | 状态：Phase 1 开发中
+> 版本：v1.7 | 状态：Phase 2 开发中
 
 ---
 
@@ -43,7 +43,15 @@
 - 幻觉抑制：系统提示严格限制模型只基于检索内容作答
 - 置信度评估：检索结果不足时明确告知用户
 
-### 2.4 工程与运维
+### 2.4 数据集管理
+
+- **数据集创建**：用户通过 API 创建数据集，指定名称（全局唯一）和描述，系统自动分配 `dataset_id`
+- **文档归属**：文件上传时可选择目标数据集（选填），文档归属于指定数据集；也可上传不属于任何数据集的裸文档
+- **范围检索**：问答和调试接口支持按数据集 ID、文档 ID、文档名称（模糊匹配）独立过滤，缩小召回范围
+- **安全删除**：有文档的数据集默认拒绝删除，需传 `force=true` 确认后级联删除其下所有文档（含分块记录、向量索引、OSS 文件）
+- **过滤解析**：检索过滤不侵入 Milvus Schema，在 API 层通过 PostgreSQL 解析数据集 ID / 文档名称为 doc_id 列表，再注入 Milvus `doc_id in [...]` 过滤条件
+
+### 2.5 工程与运维
 
 - 增量更新：文档变化时只重建变化部分的索引
 - 查询缓存：高频问题缓存结果，降低延迟和成本
@@ -264,12 +272,25 @@ MinIO / S3
 | 用户下载 | 管理后台支持查看和下载原始文件 |
 | 溯源核查 | 用户对答案存疑时，可直接取原始文件核对 |
 
-**PostgreSQL 文档管理表**：
+**PostgreSQL 数据管理表**：
 
 ```sql
+-- 数据集表
+CREATE TABLE datasets (
+    dataset_id    VARCHAR(64)   PRIMARY KEY,
+    name          VARCHAR(256)  NOT NULL UNIQUE,    -- 数据集名称，全局唯一
+    description   TEXT,
+    created_by    VARCHAR(64),
+    created_at    TIMESTAMP     NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_datasets_created_at ON datasets(created_at DESC);
+
 -- 文档管理表（原始文件信息）
 CREATE TABLE documents (
     doc_id        VARCHAR(64)   PRIMARY KEY,
+    dataset_id    VARCHAR(64)   REFERENCES datasets(dataset_id) ON DELETE CASCADE,  -- 可空，裸文档无数据集归属
     filename      VARCHAR(512)  NOT NULL,
     raw_file_url  VARCHAR(1024) NOT NULL,          -- 原始文件在 OSS 的内部路径（非签名URL）
     file_size     BIGINT,                          -- 文件大小（字节）
@@ -282,6 +303,8 @@ CREATE TABLE documents (
     uploaded_at   TIMESTAMP     NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMP     NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX idx_documents_dataset_id ON documents(dataset_id);
 
 -- 分块记录表（摄入后的分块详情）
 CREATE TABLE chunks (
@@ -341,14 +364,17 @@ fields = [
 检索流水线（Pipeline）设计，每个节点独立可替换：
 
 ```
-用户问题
+用户问题 (+ 可选过滤: dataset_ids / doc_ids / doc_names)
    │
    ▼
 [查询理解]   → 意图识别、关键词提取、查询改写
    │
    ▼
-[多路检索]   → 向量检索 ║ BM25 关键词检索 ║ 元数据过滤
-   │            text / table / mixed 块统一参与检索
+[过滤解析]   → API 层将 dataset_ids / doc_names 通过 PG 解析为 doc_ids 列表
+   │
+   ▼
+[多路检索]   → 向量检索 ║ BM25 关键词检索
+   │            注入 doc_id in [...] 过滤条件（来源于数据集/文档ID/文档名称）
    ▼
 [结果融合]   → RRF 算法合并多路结果
    │
@@ -432,6 +458,19 @@ class RAGOrchestrator:
 | REST API | HTTP | 标准问答，同步返回 |
 | WebSocket | WS | 流式对话，实时输出 |
 | 管理后台 | HTTP | 文档上传、索引状态、参数调整、日志查看 |
+
+**API 端点一览**：
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| POST | `/api/v1/datasets` | 创建数据集 |
+| GET | `/api/v1/datasets` | 数据集列表（分页） |
+| GET | `/api/v1/datasets/{dataset_id}` | 数据集详情 |
+| PATCH | `/api/v1/datasets/{dataset_id}` | 更新数据集（名称/描述） |
+| DELETE | `/api/v1/datasets/{dataset_id}?force=false` | 删除数据集（有文档时需 `force=true`） |
+| POST | `/api/v1/documents` | 上传文档（`dataset_id` 选填） |
+| POST | `/api/v1/query` | 问答（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
+| POST | `/api/v1/debug/retrieve` | 调试检索（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
 
 ---
 
@@ -697,14 +736,16 @@ PDF / Word / Excel 文档上传
 ### 7.2 查询链路
 
 ```
-用户提问
+用户提问 (+ 可选过滤: dataset_ids / doc_ids / doc_names)
     │
     ▼
 [查询理解]  →  改写 / 意图识别
     │
     ▼
-[多路检索]  →  Milvus(向量) + BM25，text/table/mixed 统一参与
+[过滤解析]  →  API 层将 dataset_ids / doc_names 通过 PG 解析为 doc_ids 列表
     │
+    ▼
+[多路检索]  →  Milvus(向量) + BM25，注入 doc_id in [...] 过滤
     ▼
 [RRF 融合]  →  合并排序
     │

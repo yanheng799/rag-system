@@ -51,6 +51,7 @@ class RAGOrchestrator:
         question: str,
         top_k: int = 5,
         user_id: Optional[str] = None,
+        filters: Optional[dict] = None,
     ) -> QueryResponse:
         """
         完整问答流程：
@@ -64,7 +65,7 @@ class RAGOrchestrator:
 
         # 1. 向量检索
         retrieval_start = time.time()
-        chunks = self._searcher.search(question, top_k=top_k)
+        chunks = self._searcher.search(question, top_k=top_k, filters=filters)
         retrieval_ms = int((time.time() - retrieval_start) * 1000)
 
         # 2. 构建 Prompt
@@ -75,8 +76,8 @@ class RAGOrchestrator:
         answer = self._llm.complete(messages)
         llm_ms = int((time.time() - llm_start) * 1000)
 
-        # 4. 后处理：签名 URL 替换
-        sources = self._build_response_sources(chunks)
+        # 4. 后处理：签名 URL 替换 + 真实 filename
+        sources = await self._build_response_sources(chunks)
 
         total_ms = int((time.time() - start_time) * 1000)
 
@@ -107,12 +108,13 @@ class RAGOrchestrator:
             total_ms=total_ms,
         )
 
-    def query_stream(
+    async def query_stream(
         self,
         question: str,
         top_k: int = 5,
         user_id: Optional[str] = None,
-    ) -> Generator:
+        filters: Optional[dict] = None,
+    ):
         """
         流式问答：
         1. 先执行检索
@@ -120,7 +122,7 @@ class RAGOrchestrator:
         3. 最后 yield 来源信息
         """
         # 检索
-        chunks = self._searcher.search(question, top_k=top_k)
+        chunks = self._searcher.search(question, top_k=top_k, filters=filters)
         messages = self._prompt_builder.build(question, chunks)
 
         # 流式 LLM
@@ -128,12 +130,20 @@ class RAGOrchestrator:
             yield {"type": "token", "content": token}
 
         # 来源
-        sources = self._build_response_sources(chunks)
+        sources = await self._build_response_sources(chunks)
         yield {"type": "sources", "sources": sources}
         yield {"type": "done"}
 
-    def _build_response_sources(self, chunks: list[RetrievedChunk]) -> list[dict]:
-        """构建响应中的 sources 列表，替换签名 URL"""
+    async def _build_response_sources(self, chunks: list[RetrievedChunk]) -> list[dict]:
+        """构建响应中的 sources 列表，替换签名 URL + 真实 filename"""
+        # 批量查询文档的真实 filename
+        unique_doc_ids = list({c.metadata.doc_id for c in chunks})
+        doc_filename_map: dict[str, str] = {}
+        for did in unique_doc_ids:
+            doc = await self._doc_store.get_document(did)
+            if doc:
+                doc_filename_map[did] = doc.filename
+
         sources = []
         for chunk in chunks:
             # 签名 URL 替换
@@ -146,7 +156,10 @@ class RAGOrchestrator:
 
             metadata = chunk.metadata.to_dict()
             metadata["score"] = chunk.score
-            metadata["filename"] = metadata.pop("source")
+            metadata.pop("source", None)
+            metadata["filename"] = doc_filename_map.get(
+                chunk.metadata.doc_id, chunk.metadata.source
+            )
 
             sources.append({
                 "metadata": metadata,

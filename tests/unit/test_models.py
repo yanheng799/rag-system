@@ -8,7 +8,7 @@ from models.chunks import (
     MixedChunk,
     RetrievedChunk,
 )
-from models.documents import ChunkRecord, DocumentRecord
+from models.documents import ChunkRecord, DatasetRecord, DocumentRecord
 
 
 class TestContentElement:
@@ -117,3 +117,40 @@ class TestDocumentRecord:
         )
         assert doc.status == "pending"
         assert doc.retry_count == 0
+        assert doc.dataset_id is None
+
+    def test_document_record_with_dataset(self):
+        doc = DocumentRecord(
+            doc_id="doc_002",
+            filename="test.docx",
+            raw_file_url="raw-docs/doc_002/test.docx",
+            dataset_id="ds_abc123",
+        )
+        assert doc.dataset_id == "ds_abc123"
+
+
+class TestDatasetRecord:
+    def test_dataset_record(self):
+        ds = DatasetRecord(
+            dataset_id="ds_abc123",
+            name="测试数据集",
+        )
+        assert ds.dataset_id == "ds_abc123"
+        assert ds.name == "测试数据集"
+        assert ds.description is None
+        assert ds.created_by is None
+
+    def test_dataset_record_full(self):
+        from datetime import datetime
+
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        ds = DatasetRecord(
+            dataset_id="ds_abc123",
+            name="电力工程",
+            description="输电线路数据",
+            created_by="user_001",
+            created_at=now,
+            updated_at=now,
+        )
+        assert ds.description == "输电线路数据"
+        assert ds.created_by == "user_001"

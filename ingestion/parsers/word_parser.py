@@ -54,6 +54,11 @@ class WordParser(BaseParser):
                         break
 
                 if para:
+                    # TOC 条目：跳过段落文本及其中的图片
+                    para_type = self._detect_paragraph_type(para)
+                    if para_type is None:
+                        continue
+
                     # 检测段落中的图片（按 rId 去重，同一图片只提取一次）
                     if self._do_extract_images:
                         seen_rids: set[str] = set()
@@ -87,10 +92,9 @@ class WordParser(BaseParser):
 
                     if para.text.strip():
                         text = para.text.strip()
-                        elem_type = self._detect_paragraph_type(para)
                         elements.append(
                             ParsedElement(
-                                elem_type=elem_type,
+                                elem_type=para_type,
                                 content=text,
                                 page=1,
                                 bbox=(0, position, 0, position + 1),
@@ -125,9 +129,11 @@ class WordParser(BaseParser):
         logger.info("Word 解析完成: %s, 共 %d 个元素", file_path, len(elements))
         return elements
 
-    def _detect_paragraph_type(self, para) -> str:
-        """判断段落类型"""
+    def _detect_paragraph_type(self, para) -> str | None:
+        """判断段落类型，返回 None 表示应跳过（如 TOC 条目）"""
         style_name = para.style.name if para.style else ""
+        if "toc" in style_name.lower() or "目录" in style_name:
+            return None
         if "Heading" in style_name or "标题" in style_name:
             return "title"
         if "List" in style_name or "列表" in style_name:

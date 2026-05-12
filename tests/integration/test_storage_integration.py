@@ -110,6 +110,173 @@ class TestPgStoreIntegration:
         assert deleted == 1
 
 
+class TestDatasetPgIntegration:
+    """数据集 PostgreSQL 集成测试"""
+
+    @pytest.fixture
+    def pg_store(self):
+        from storage.pg_store import PgStore
+        return PgStore()
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_dataset(self, pg_store):
+        from models.documents import DatasetRecord
+
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        record = await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"测试数据集_{dataset_id}",
+            description="测试描述",
+        )
+        assert record.dataset_id == dataset_id
+        assert record.name.startswith("测试数据集_")
+
+        fetched = await pg_store.get_dataset(dataset_id)
+        assert fetched is not None
+        assert fetched.name == record.name
+        assert fetched.description == "测试描述"
+
+    @pytest.mark.asyncio
+    async def test_list_datasets(self, pg_store):
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"列表测试_{dataset_id}",
+        )
+        records, total = await pg_store.list_datasets(page=1, size=10)
+        assert total >= 1
+        assert any(r.dataset_id == dataset_id for r in records)
+
+    @pytest.mark.asyncio
+    async def test_update_dataset(self, pg_store):
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"更新前_{dataset_id}",
+        )
+        updated = await pg_store.update_dataset(
+            dataset_id=dataset_id,
+            name=f"更新后_{dataset_id}",
+            description="新描述",
+        )
+        assert updated is not None
+        assert updated.name == f"更新后_{dataset_id}"
+        assert updated.description == "新描述"
+
+    @pytest.mark.asyncio
+    async def test_delete_dataset(self, pg_store):
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"删除测试_{dataset_id}",
+        )
+        result = await pg_store.delete_dataset(dataset_id)
+        assert result is True
+
+        fetched = await pg_store.get_dataset(dataset_id)
+        assert fetched is None
+
+    @pytest.mark.asyncio
+    async def test_count_docs_by_dataset(self, pg_store):
+        from models.documents import DocumentRecord
+
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"计数测试_{dataset_id}",
+        )
+        assert await pg_store.count_docs_by_dataset(dataset_id) == 0
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(DocumentRecord(
+            doc_id=doc_id,
+            dataset_id=dataset_id,
+            filename="test.pdf",
+            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+        ))
+        assert await pg_store.count_docs_by_dataset(dataset_id) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_doc_ids_by_dataset_ids(self, pg_store):
+        from models.documents import DocumentRecord
+
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"过滤测试_{dataset_id}",
+        )
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(DocumentRecord(
+            doc_id=doc_id,
+            dataset_id=dataset_id,
+            filename="test.pdf",
+            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+        ))
+
+        ids = await pg_store.get_doc_ids_by_dataset_ids([dataset_id])
+        assert doc_id in ids
+
+    @pytest.mark.asyncio
+    async def test_get_doc_ids_by_filenames(self, pg_store):
+        from models.documents import DocumentRecord
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        unique_name = f"unique_file_{doc_id}.pdf"
+        await pg_store.save_document(DocumentRecord(
+            doc_id=doc_id,
+            filename=unique_name,
+            raw_file_url=f"raw-docs/{doc_id}/{unique_name}",
+        ))
+
+        ids = await pg_store.get_doc_ids_by_filenames([unique_name])
+        assert doc_id in ids
+
+    @pytest.mark.asyncio
+    async def test_document_with_dataset_id(self, pg_store):
+        from models.documents import DocumentRecord
+
+        dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
+        await pg_store.create_dataset(
+            dataset_id=dataset_id,
+            name=f"关联测试_{dataset_id}",
+        )
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(DocumentRecord(
+            doc_id=doc_id,
+            dataset_id=dataset_id,
+            filename="linked.pdf",
+            raw_file_url=f"raw-docs/{doc_id}/linked.pdf",
+        ))
+
+        fetched = await pg_store.get_document(doc_id)
+        assert fetched is not None
+        assert fetched.dataset_id == dataset_id
+
+    @pytest.mark.asyncio
+    async def test_delete_document(self, pg_store):
+        from models.documents import DocumentRecord
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(DocumentRecord(
+            doc_id=doc_id,
+            filename="delete_me.pdf",
+            raw_file_url=f"raw-docs/{doc_id}/delete_me.pdf",
+        ))
+
+        result = await pg_store.delete_document(doc_id)
+        assert result is True
+
+        fetched = await pg_store.get_document(doc_id)
+        assert fetched is None
+
+    @pytest.mark.asyncio
+    async def test_delete_document_not_found(self, pg_store):
+        result = await pg_store.delete_document("nonexistent_doc")
+        assert result is False
+
+
 # ---- MinIO 集成测试 ----
 
 class TestMinIOIntegration:
