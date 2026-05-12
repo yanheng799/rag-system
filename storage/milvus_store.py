@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Optional
 
-from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections
+from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, Function, FunctionType, connections
 from pymilvus import utility
 
 from config.settings import settings
@@ -38,7 +38,7 @@ class MilvusStore(VectorStorePort):
         )
 
     def _get_schema(self) -> CollectionSchema:
-        """定义 Collection Schema"""
+        """定义 Collection Schema（含 BM25 全文检索）"""
         fields = [
             FieldSchema(
                 "id", DataType.INT64, is_primary=True, auto_id=True
@@ -48,7 +48,7 @@ class MilvusStore(VectorStorePort):
             ),
             FieldSchema("chunk_id", DataType.VARCHAR, max_length=128),
             FieldSchema("doc_id", DataType.VARCHAR, max_length=64),
-            FieldSchema("full_text", DataType.VARCHAR, max_length=32768),
+            FieldSchema("full_text", DataType.VARCHAR, max_length=32768, enable_analyzer=True),
             FieldSchema("chunk_type", DataType.VARCHAR, max_length=16),
             FieldSchema("elements", DataType.VARCHAR, max_length=65535),
             FieldSchema("image_urls", DataType.VARCHAR, max_length=2048),
@@ -59,8 +59,19 @@ class MilvusStore(VectorStorePort):
             FieldSchema("created_at", DataType.VARCHAR, max_length=32),
             FieldSchema("pages", DataType.VARCHAR, max_length=256),
             FieldSchema("group_id", DataType.VARCHAR, max_length=128),
+            FieldSchema("sparse_embedding", DataType.SPARSE_FLOAT_VECTOR),
         ]
-        return CollectionSchema(fields=fields, description="RAG 分块向量索引")
+        bm25_function = Function(
+            name="text_bm25_emb",
+            input_field_names=["full_text"],
+            output_field_names=["sparse_embedding"],
+            function_type=FunctionType.BM25,
+        )
+        return CollectionSchema(
+            fields=fields,
+            functions=[bm25_function],
+            description="RAG 分块向量索引（含 BM25 全文检索）",
+        )
 
     def init_collection(self) -> None:
         """初始化 Collection"""
@@ -84,6 +95,19 @@ class MilvusStore(VectorStorePort):
             }
             self._collection.create_index(
                 field_name="embedding", index_params=index_params
+            )
+            # 创建 BM25 稀疏索引
+            sparse_index_params = {
+                "index_type": "SPARSE_INVERTED_INDEX",
+                "metric_type": "BM25",
+                "params": {
+                    "inverted_index_algo": "DAAT_MAXSCORE",
+                    "bm25_k1": settings.bm25_k1,
+                    "bm25_b": settings.bm25_b,
+                },
+            }
+            self._collection.create_index(
+                field_name="sparse_embedding", index_params=sparse_index_params
             )
             logger.info(
                 "Milvus Collection '%s' 创建成功，索引类型: %s",
@@ -146,6 +170,63 @@ class MilvusStore(VectorStorePort):
         results = self._collection.search(
             data=[embedding],
             anns_field="embedding",
+            param=search_params,
+            limit=top_k,
+            expr=expr,
+            output_fields=[
+                "chunk_id", "doc_id", "full_text", "chunk_type",
+                "elements", "image_urls", "source", "page",
+                "chunk_index", "char_count", "created_at", "pages", "group_id",
+            ],
+        )
+
+        hits = []
+        for hit in results[0]:
+            record = {
+                "id": hit.id,
+                "score": hit.score,
+                "chunk_id": hit.entity.get("chunk_id"),
+                "doc_id": hit.entity.get("doc_id"),
+                "full_text": hit.entity.get("full_text"),
+                "chunk_type": hit.entity.get("chunk_type"),
+                "elements": json.loads(hit.entity.get("elements", "[]")),
+                "image_urls": json.loads(hit.entity.get("image_urls", "[]")),
+                "source": hit.entity.get("source"),
+                "page": hit.entity.get("page"),
+                "chunk_index": hit.entity.get("chunk_index"),
+                "char_count": hit.entity.get("char_count"),
+                "created_at": hit.entity.get("created_at"),
+                "pages": json.loads(hit.entity.get("pages", "[]")),
+                "group_id": hit.entity.get("group_id", ""),
+            }
+            hits.append(record)
+        return hits
+
+    def bm25_search(
+        self,
+        query_text: str,
+        top_k: int = 50,
+        filters: Optional[dict] = None,
+    ) -> list[dict]:
+        """BM25 全文检索"""
+        if self._collection is None:
+            self.init_collection()
+
+        search_params = {"metric_type": "BM25"}
+        expr = None
+        if filters:
+            conditions = []
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    values_str = ", ".join(f'"{v}"' for v in value)
+                    conditions.append(f"{key} in [{values_str}]")
+                else:
+                    conditions.append(f'{key} == "{value}"')
+            expr = " and ".join(conditions)
+
+        results = self._collection.search(
+            data=[query_text],
+            anns_field="sparse_embedding",
             param=search_params,
             limit=top_k,
             expr=expr,

@@ -15,6 +15,8 @@ from ingestion.parsers.registry import init_parsers
 from orchestration.llm_client import QwenClient
 from orchestration.orchestrator import RAGOrchestrator
 from orchestration.prompt_builder import PromptBuilder
+from retrieval.bm25_search import BM25Searcher
+from retrieval.hybrid_search import HybridSearcher
 from retrieval.vector_search import VectorSearcher
 from storage.milvus_store import MilvusStore
 from storage.oss_store import OSSStore
@@ -57,6 +59,15 @@ async def lifespan(app: FastAPI):
         embedder=embedder,
     )
 
+    # BM25 检索
+    bm25_searcher = BM25Searcher(milvus_store=milvus_store)
+
+    # 混合检索
+    hybrid_searcher = HybridSearcher(
+        vector_searcher=vector_searcher,
+        bm25_searcher=bm25_searcher,
+    )
+
     # LLM 客户端
     llm_client = QwenClient()
 
@@ -79,6 +90,8 @@ async def lifespan(app: FastAPI):
     app.state.signed_url_service = signed_url_service
     app.state.embedder = embedder
     app.state.vector_searcher = vector_searcher
+    app.state.bm25_searcher = bm25_searcher
+    app.state.hybrid_searcher = hybrid_searcher
     app.state.llm_client = llm_client
     app.state.orchestrator = orchestrator
 

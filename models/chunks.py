@@ -102,6 +102,8 @@ class RetrievedChunk:
     full_text: str = ""
     image_urls: list[str] = field(default_factory=list)
     score: float = 0.0
+    vector_score: float = 0.0
+    bm25_score: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -109,4 +111,7 @@ class RetrievedChunk:
             "elements": [e.to_dict() for e in self.elements],
             "full_text": self.full_text,
             "image_urls": self.image_urls,
+            "score": self.score,
+            "vector_score": self.vector_score,
+            "bm25_score": self.bm25_score,
         }

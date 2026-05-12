@@ -21,17 +21,18 @@ router = APIRouter(prefix="/api/v1/debug", tags=["调试"])
 async def debug_retrieve(request: Request, body: RetrieveRequest):
     """
     调试检索接口：绕过 LLM，直接返回检索分块结果。
-    用于开发和调试阶段验证检索质量。
+    支持 vector / bm25 / hybrid 三种检索模式。
     """
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
 
-    vector_searcher = request.app.state.vector_searcher
-    if vector_searcher is None:
-        raise HTTPException(status_code=503, detail="检索服务未就绪")
+    # 根据 search_mode 选择检索器
+    searcher = getattr(request.app.state, f"{body.search_mode}_searcher", None)
+    if searcher is None:
+        raise HTTPException(status_code=503, detail=f"{body.search_mode} 检索服务未就绪")
 
     start_time = time.time()
-    chunks = vector_searcher.search(
+    chunks = searcher.search(
         question=body.question,
         top_k=body.top_k,
     )
@@ -62,12 +63,18 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
             else:
                 image_urls.append(url)
 
+        scores = DebugChunkScores(
+            vector_score=chunk.vector_score,
+            bm25_score=chunk.bm25_score,
+            rrf_score=chunk.score if body.search_mode == "hybrid" else None,
+        )
+
         debug_chunks.append(
             DebugChunk(
                 rank=idx,
                 metadata=metadata,
                 full_text=chunk.full_text,
-                scores=DebugChunkScores(vector_score=chunk.score),
+                scores=scores,
                 image_urls=image_urls,
             )
         )

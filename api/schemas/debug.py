@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class RetrieveRequest(BaseModel):
     question: str
     top_k: int = Field(default=10, ge=1, le=50)
-    search_mode: Literal["vector"] = "vector"  # Phase 1 仅支持 vector
+    search_mode: Literal["vector", "bm25", "hybrid"] = "vector"
     show_prompt: bool = False
 
 
@@ -25,7 +25,9 @@ class DebugChunkMetadata(BaseModel):
 
 
 class DebugChunkScores(BaseModel):
-    vector_score: float
+    vector_score: float = 0.0
+    bm25_score: float = 0.0
+    rrf_score: Optional[float] = None
 
 
 class DebugChunk(BaseModel):

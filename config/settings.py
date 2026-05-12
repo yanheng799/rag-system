@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=50, description="粗召回数量")
     rerank_top_k: int = Field(default=5, description="重排序后保留数量")
 
+    # BM25 配置
+    bm25_k1: float = Field(default=1.2, description="BM25 k1 参数，控制词频饱和度")
+    bm25_b: float = Field(default=0.75, description="BM25 b 参数，控制文档长度归一化")
+
+    # 混合检索配置
+    rrf_k: int = Field(default=60, description="RRF 融合常数 k")
+
     # Milvus 索引配置
     milvus_index_type: str = Field(default="HNSW")
     milvus_metric_type: str = Field(default="COSINE")
