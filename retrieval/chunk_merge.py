@@ -84,9 +84,15 @@ def merge_grouped_chunks(
         chunk.full_text = "\n".join(c.full_text for c in group)
         chunk.score = max(c.score for c in group)
         all_urls = []
+        all_elements = []
+        all_pages = []
         for c in group:
             all_urls.extend(c.image_urls)
+            all_elements.extend(c.elements)
+            all_pages.extend(c.metadata.pages)
         chunk.image_urls = all_urls
+        chunk.elements = all_elements
+        chunk.metadata.pages = sorted(set(all_pages))
         merged.append(chunk)
 
     logger.info("分块合并: %d → %d 条结果", len(chunks), len(merged))

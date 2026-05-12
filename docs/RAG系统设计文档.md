@@ -1,6 +1,6 @@
 # RAG 系统整体设计文档
 
-> 版本：v1.7 | 状态：Phase 2 开发中
+> 版本：v1.8 | 状态：Phase 2 开发中
 
 ---
 
@@ -51,7 +51,26 @@
 - **安全删除**：有文档的数据集默认拒绝删除，需传 `force=true` 确认后级联删除其下所有文档（含分块记录、向量索引、OSS 文件）
 - **过滤解析**：检索过滤不侵入 Milvus Schema，在 API 层通过 PostgreSQL 解析数据集 ID / 文档名称为 doc_id 列表，再注入 Milvus `doc_id in [...]` 过滤条件
 
-### 2.5 工程与运维
+### 2.5 分块管理
+
+- **分块浏览**：按文档查看分块列表（分页），支持查看每个分块的完整 elements、full_text、image_urls，用于前端可视化展示
+- **分块删除**：用户可删除单个分块，直接从 PG + Milvus 中移除
+- **分块合并**：用户选择同一文档中相邻的多个分块合并为一个，系统重新生成 embedding 并同步更新 PG + Milvus；合并后产生新 chunk_id（格式 `{doc_id}_m_{uuid_hex[:8]}`），原分块记录删除
+- **分块拆分**：用户选择一个分块，指定元素索引位置（split_at），将 elements 一分为二，各自重建 full_text 和 embedding，分别写入 PG + Milvus
+- **合并校验规则**：
+  - 所有 chunk 必须存在且属于同一文档
+  - 通过 PG 查询确认选定范围（最小 page+chunk_index 到最大 page+chunk_index）内无遗漏 chunk，不依赖 chunk_index 连续性
+  - 合并后 full_text 不得超过 2048 字符（embedding 截断限制），超出直接拒绝返回 400
+- **拆分校验规则**：`1 <= split_at < len(elements)`，不满足返回 400
+- **拆分 group_id 策略**：拆分接口提供 `link_group` 参数（默认 `false`），默认两个子 chunk 独立（group_id=""）；用户可传 `true` 使两子 chunk 共享新生成的 group_id，检索时任一半命中可自动召回另一半
+- **合并解散孤儿组**：合并时若被删除的 chunk 有非空 group_id，自动将该组剩余兄弟 chunk 的 group_id 清空（同步更新 PG + Milvus），避免产生不完整分组
+- **分块关联/取消关联**：
+  - `POST /api/v1/chunks/link`：将多个分块关联到同一 group_id，检索时任一分块命中可自动召回同组其他分块。要求所有分块属于同一文档。若分块已有 group_id，先解散旧组再关联新组
+  - `POST /api/v1/chunks/unlink`：取消分块的 group_id 关联，同步清空 PG + Milvus 中的 group_id
+- **删除清理 OSS**：删除单个分块时，同时清理该分块 `image_urls` 指向的 OSS 文件（忽略删除失败）
+- **数据一致性**：每次合并/拆分/删除操作同时更新 PG（分块记录）和 Milvus（向量 + BM25 稀疏向量），保证双存储一致
+
+### 2.6 工程与运维
 
 - 增量更新：文档变化时只重建变化部分的索引
 - 查询缓存：高频问题缓存结果，降低延迟和成本
@@ -469,8 +488,16 @@ class RAGOrchestrator:
 | PATCH | `/api/v1/datasets/{dataset_id}` | 更新数据集（名称/描述） |
 | DELETE | `/api/v1/datasets/{dataset_id}?force=false` | 删除数据集（有文档时需 `force=true`） |
 | POST | `/api/v1/documents` | 上传文档（`dataset_id` 选填） |
+| DELETE | `/api/v1/documents/{doc_id}` | 删除文档（级联清理向量+分块+OSS） |
 | POST | `/api/v1/query` | 问答（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
 | POST | `/api/v1/debug/retrieve` | 调试检索（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
+| GET | `/api/v1/documents/{doc_id}/chunks` | 文档分块列表（分页） |
+| GET | `/api/v1/chunks/{chunk_id}` | 分块详情（完整 elements） |
+| DELETE | `/api/v1/chunks/{chunk_id}` | 删除单个分块 |
+| POST | `/api/v1/chunks/merge` | 合并相邻分块 |
+| POST | `/api/v1/chunks/{chunk_id}/split` | 按元素索引拆分分块（支持 `link_group` 参数） |
+| POST | `/api/v1/chunks/link` | 关联多个分块到同一 group_id |
+| POST | `/api/v1/chunks/unlink` | 取消分块的 group_id 关联 |
 
 ---
 

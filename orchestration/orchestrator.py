@@ -14,6 +14,7 @@ from models.documents import QueryLogRecord
 from orchestration.llm_client import LLMClient
 from orchestration.prompt_builder import PromptBuilder
 from retrieval.vector_search import VectorSearcher
+from retrieval.hybrid_search import HybridSearcher
 from storage.ports import DocumentStorePort, ObjectStorePort
 from storage.signed_url_service import SignedUrlService
 
@@ -34,13 +35,13 @@ class RAGOrchestrator:
 
     def __init__(
         self,
-        vector_searcher: VectorSearcher,
+        searcher: VectorSearcher | HybridSearcher,
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
         doc_store: DocumentStorePort,
         signed_url_service: SignedUrlService,
     ):
-        self._searcher = vector_searcher
+        self._searcher = searcher
         self._llm = llm_client
         self._prompt_builder = prompt_builder
         self._doc_store = doc_store

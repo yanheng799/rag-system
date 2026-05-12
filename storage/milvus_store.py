@@ -299,3 +299,14 @@ class MilvusStore(VectorStorePort):
             self.init_collection()
         self._collection.delete(f'doc_id == "{doc_id}"')
         logger.info("Milvus 删除 doc_id=%s 的所有记录", doc_id)
+
+    def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
+        """按 chunk_id 列表删除指定向量记录"""
+        if not chunk_ids:
+            return
+        if self._collection is None:
+            self.init_collection()
+        values = ", ".join(f'"{cid}"' for cid in chunk_ids)
+        expr = f"chunk_id in [{values}]"
+        self._collection.delete(expr)
+        logger.info("Milvus 删除 %d 条 chunk 记录", len(chunk_ids))

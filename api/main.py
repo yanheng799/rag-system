@@ -4,12 +4,10 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 from api.middleware.error_handler import ErrorHandlerMiddleware
-from api.routers import datasets, debug, documents, query
-from config.settings import settings
+from api.routers import chunks, datasets, debug, documents, query
 from ingestion.embedder import Embedder
 from ingestion.parsers.registry import init_parsers
 from orchestration.llm_client import QwenClient
@@ -76,7 +74,7 @@ async def lifespan(app: FastAPI):
 
     # 编排器
     orchestrator = RAGOrchestrator(
-        vector_searcher=vector_searcher,
+        searcher=hybrid_searcher,
         llm_client=llm_client,
         prompt_builder=prompt_builder,
         doc_store=pg_store,
@@ -115,6 +113,7 @@ app = FastAPI(
 app.add_middleware(ErrorHandlerMiddleware)
 
 # 路由注册
+app.include_router(chunks.router)
 app.include_router(datasets.router)
 app.include_router(documents.router)
 app.include_router(query.router)

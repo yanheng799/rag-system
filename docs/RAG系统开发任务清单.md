@@ -2293,6 +2293,74 @@ async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]:
 
 ---
 
+### TASK-057｜分块管理 — 存储层查询接口
+
+**模块**：存储层
+**优先级**：P1
+**前置**：TASK-005、TASK-002
+**描述**：扩展 DocumentStorePort 和 VectorStorePort，支持分块粒度的查询和删除。
+
+**DocumentStorePort 新增方法**：
+- `get_chunk(chunk_id) -> Optional[ChunkRecord]` — 查询单个分块
+- `get_chunks_by_ids(chunk_ids) -> list[ChunkRecord]` — 按 ID 列表批量查询
+- `list_chunks_by_doc(doc_id, page, size) -> tuple[list[ChunkRecord], int]` — 文档分块分页列表
+- `delete_chunks_by_ids(chunk_ids) -> int` — 按 ID 列表删除分块
+
+**VectorStorePort 新增方法**：
+- `delete_by_chunk_ids(chunk_ids) -> None` — 按 chunk_id 列表删除向量
+
+**完成标志**：PgStore 和 MilvusStore 实现上述方法，单元测试通过
+
+---
+
+### TASK-058｜分块管理 — REST API（列表 / 详情 / 合并 / 拆分 / 删除 / 关联）
+
+**模块**：API 层
+**优先级**：P1
+**前置**：TASK-057、TASK-014（Embedder）
+**描述**：提供 7 个 REST 端点，支持用户浏览和手动调整文档分块。
+
+**端点**：
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/api/v1/documents/{doc_id}/chunks` | 文档分块列表（分页） |
+| GET | `/api/v1/chunks/{chunk_id}` | 分块详情（完整 elements） |
+| DELETE | `/api/v1/chunks/{chunk_id}` | 删除单个分块（含 OSS 图片清理） |
+| POST | `/api/v1/chunks/merge` | 合并相邻分块 |
+| POST | `/api/v1/chunks/{chunk_id}/split` | 按元素索引拆分分块 |
+| POST | `/api/v1/chunks/link` | 关联多个分块到同一 group_id |
+| POST | `/api/v1/chunks/unlink` | 取消分块的 group_id 关联 |
+
+**合并校验**：
+1. 所有 chunk 必须存在且属于同一文档
+2. 通过 PG 查询确认选定范围（最小到最大 page+chunk_index）内无遗漏 chunk（不依赖 chunk_index 连续性）
+3. 合并后 full_text 不得超过 2048 字符，超出拒绝（400）
+4. 若被删除 chunk 有非空 group_id，自动将该组剩余兄弟 chunk 的 group_id 清空（PG + Milvus 同步更新）
+
+**合并逻辑**：校验通过 → 合并 elements/full_text → 生成 embedding → 删旧 + 写新（PG + Milvus）。新 chunk_id 格式：`{doc_id}_m_{uuid_hex[:8]}`
+
+**拆分逻辑**：
+- 校验 `1 <= split_at < len(elements)`
+- 按 split_at 切分 elements → 各自重建 full_text + embedding → 删旧 + 写新
+- 支持 `link_group` 参数（默认 `false`）：为 true 时两子 chunk 共享新 group_id；为 false 时独立
+
+**删除逻辑**：校验 chunk 存在 → 删除 PG + Milvus 记录 → 清理 OSS 图片文件（忽略失败）
+
+**关联逻辑（link）**：
+- 校验所有 chunk 存在且属于同一文档，至少 2 个
+- 若 chunk 已有 group_id，先解散旧组（将该组剩余兄弟 group_id 清空）
+- 为所有指定 chunk 分配新的共享 group_id，同步更新 PG + Milvus
+
+**取消关联（unlink）**：
+- 校验所有 chunk 存在
+- 将指定 chunk 的 group_id 清空，同步更新 PG + Milvus
+- 若清空后原组还有其他成员，保持它们不变（不自动解散）
+
+**完成标志**：7 个端点功能正常，边界校验返回 400，合并/拆分后 Milvus 可检索到新分块，group_id 解散/关联逻辑正确
+
+---
+
 ## Phase 3：混合块能力完善
 
 > 目标：段落聚合、表格截图、MixedChunk 全链路打通（Phase 1 中已有基础实现，本阶段做完整测试和边界修复）

@@ -203,6 +203,69 @@ class PgStore(DocumentStorePort):
             await session.commit()
             return result.rowcount
 
+    @staticmethod
+    def _chunk_orm_to_record(orm: ChunkORM) -> ChunkRecord:
+        return ChunkRecord(
+            chunk_id=orm.chunk_id,
+            doc_id=orm.doc_id,
+            chunk_type=orm.chunk_type,
+            full_text=orm.full_text,
+            elements=orm.elements if isinstance(orm.elements, list) else [],
+            image_urls=orm.image_urls if isinstance(orm.image_urls, list) else [],
+            page=orm.page,
+            chunk_index=orm.chunk_index,
+            char_count=orm.char_count,
+            group_id=orm.group_id,
+            created_at=orm.created_at,
+        )
+
+    async def get_chunk(self, chunk_id: str) -> Optional[ChunkRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ChunkORM).where(ChunkORM.chunk_id == chunk_id)
+            )
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._chunk_orm_to_record(orm)
+
+    async def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[ChunkRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids))
+            )
+            rows = result.scalars().all()
+            return [self._chunk_orm_to_record(r) for r in rows]
+
+    async def list_chunks_by_doc(
+        self, doc_id: str, page: int = 1, size: int = 20
+    ) -> tuple[list[ChunkRecord], int]:
+        async with self._session_factory() as session:
+            count_result = await session.execute(
+                select(func.count()).select_from(ChunkORM).where(
+                    ChunkORM.doc_id == doc_id
+                )
+            )
+            total = count_result.scalar() or 0
+
+            result = await session.execute(
+                select(ChunkORM)
+                .where(ChunkORM.doc_id == doc_id)
+                .order_by(ChunkORM.page.asc(), ChunkORM.chunk_index.asc())
+                .offset((page - 1) * size)
+                .limit(size)
+            )
+            rows = result.scalars().all()
+            records = [self._chunk_orm_to_record(r) for r in rows]
+            return records, total
+
+    async def delete_chunks_by_ids(self, chunk_ids: list[str]) -> int:
+        async with self._session_factory() as session:
+            stmt = delete(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids))
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
+
     async def save_query_log(self, log: QueryLogRecord) -> None:
         async with self._session_factory() as session:
             orm = QueryLogORM(
@@ -219,6 +282,39 @@ class PgStore(DocumentStorePort):
             )
             session.add(orm)
             await session.commit()
+
+    async def clear_group_id(self, group_ids: list[str]) -> int:
+        async with self._session_factory() as session:
+            stmt = (
+                update(ChunkORM)
+                .where(ChunkORM.group_id.in_(group_ids))
+                .values(group_id="")
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
+
+    async def update_chunks_group_id(self, chunk_ids: list[str], group_id: str) -> int:
+        async with self._session_factory() as session:
+            stmt = (
+                update(ChunkORM)
+                .where(ChunkORM.chunk_id.in_(chunk_ids))
+                .values(group_id=group_id)
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
+
+    async def clear_group_ids_by_ids(self, chunk_ids: list[str]) -> int:
+        async with self._session_factory() as session:
+            stmt = (
+                update(ChunkORM)
+                .where(ChunkORM.chunk_id.in_(chunk_ids))
+                .values(group_id="")
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount
 
     # ---- 数据集管理 ----
 

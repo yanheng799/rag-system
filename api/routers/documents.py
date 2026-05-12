@@ -110,13 +110,12 @@ async def upload_document(
         f.write(file_data)
 
     # 执行摄入
-    from ingestion.embedder import Embedder
     from ingestion.pipeline import IngestionPipeline
     import logging
 
     logger = logging.getLogger(__name__)
 
-    embedder = Embedder()
+    embedder = request.app.state.embedder
     pipeline = IngestionPipeline(
         vector_store=milvus_store,
         doc_store=pg_store,
@@ -132,16 +131,20 @@ async def upload_document(
         await pipeline.ingest(doc_id, tmp_path, ext)
         logger.info(logger_msg, doc_id)
     except Exception:
-        pass
+        logger.exception("文档摄入失败: doc_id=%s", doc_id)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+    # 查询实际状态（可能为 done / failed）
+    doc_record = await pg_store.get_document(doc_id)
+    actual_status = doc_record.status if doc_record else "failed"
 
     return UploadResponse(
         doc_id=doc_id,
         filename=filename,
         dataset_id=dataset_id,
-        status="done",
+        status=actual_status,
         uploaded_at=uploaded_at,
     )
 

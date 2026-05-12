@@ -34,6 +34,10 @@ class VectorStorePort(ABC):
         """按文档 ID 删除所有相关向量记录"""
 
     @abstractmethod
+    def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
+        """按 chunk_id 列表删除指定向量记录"""
+
+    @abstractmethod
     def fetch_by_group_ids(self, group_ids: list[str]) -> list[dict]:
         """按 group_id 批量查询所有关联分块"""
 
@@ -82,6 +86,36 @@ class DocumentStorePort(ABC):
     @abstractmethod
     async def delete_chunks_by_doc(self, doc_id: str) -> int:
         """删除文档下所有分块记录，返回删除数量"""
+
+    @abstractmethod
+    async def get_chunk(self, chunk_id: str) -> Optional[ChunkRecord]:
+        """查询单个分块记录"""
+
+    @abstractmethod
+    async def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[ChunkRecord]:
+        """按 chunk_id 列表批量查询分块记录"""
+
+    @abstractmethod
+    async def list_chunks_by_doc(
+        self, doc_id: str, page: int = 1, size: int = 20
+    ) -> tuple[list[ChunkRecord], int]:
+        """分页查询文档下的分块列表，按 page + chunk_index 排序"""
+
+    @abstractmethod
+    async def delete_chunks_by_ids(self, chunk_ids: list[str]) -> int:
+        """按 chunk_id 列表删除分块记录，返回删除数量"""
+
+    @abstractmethod
+    async def clear_group_id(self, group_ids: list[str]) -> int:
+        """将指定 group_id 的所有分块的 group_id 清空，返回更新数量"""
+
+    @abstractmethod
+    async def update_chunks_group_id(self, chunk_ids: list[str], group_id: str) -> int:
+        """按 chunk_id 列表更新分块的 group_id，返回更新数量"""
+
+    @abstractmethod
+    async def clear_group_ids_by_ids(self, chunk_ids: list[str]) -> int:
+        """按 chunk_id 列表将分块的 group_id 清空，返回更新数量"""
 
     @abstractmethod
     async def save_query_log(self, log: QueryLogRecord) -> None:
