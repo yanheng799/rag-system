@@ -4,61 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Production-grade RAG (Retrieval-Augmented Generation) system for the power engineering domain (电力工程领域). Handles project management plans (项目管理规划), design disclosure documents (设计交底文件), tower detail tables (杆塔明细表/塔位明细表), tower statistics (铁塔统计) and more.
-
-**Phase 1 supported formats**: PDF, Word (.docx), Excel (.xlsx). Legacy formats (.doc, .xls), HTML, Markdown deferred to later phases.
-
-Design documents and task breakdowns are in `docs/`. The project is in early development — source code is being built according to the design specs. Real test documents are in `test-files/`.
+Production-grade RAG (Retrieval-Augmented Generation) system. Handles PDF, Word (.docx), Excel (.xlsx) document parsing, chunking, embedding, retrieval, and intelligent Q&A.
 
 All documentation and code comments are in Chinese.
 
 ## Architecture
 
-Five-layer architecture, each layer with a single responsibility communicating through standard interfaces:
+Five-layer architecture, each layer with a single responsibility:
 
-1. **Data Ingestion (`src/ingestion/`)** — Document parsing (PDF via pymupdf, Word via python-docx, Excel via openpyxl), paragraph boundary detection, table screenshot capture, semantic description generation (rule-based only in Phase 1), MixedChunk assembly, embedding, sync pipeline (async Celery deferred to Phase 4)
-2. **Storage & Indexing (`src/storage/`)** — Milvus (vector DB), PostgreSQL (document/chunk records, query logs, async via SQLAlchemy 2.0), MinIO/S3 (raw docs + table images). Redis available but unused in Phase 1. All accessed through `StoragePort` abstract interfaces in `storage/ports.py`
-3. **Retrieval (`src/retrieval/`)** — Phase 1: vector search only. Phase 2: hybrid search (vector + BM25), weighted RRF fusion, BGE-Reranker cross-encoder reranking, query rewriting, context compression. Pipeline design — each node independently replaceable
-4. **Orchestration (`src/orchestration/`)** — RAGOrchestrator chains retrieval → prompt building → LLM call → post-processing. Handles streaming, timeouts, fallback, multi-hop reasoning
-5. **API (`src/api/`)** — FastAPI application with REST endpoints, WebSocket for streaming, admin management APIs. Component wiring via `app.state` manual assembly
-
-## Tech Stack
-
-- **Language**: Python 3.11
-- **Web Framework**: FastAPI (run via `uvicorn src.main:app`)
-- **LLM**: Qwen (via DashScope OpenAI-compatible API)
-- **Embedding**: text-embedding-v2 (DashScope API, 1024-dim)
-- **Reranker**: BGE-Reranker-v2-m3 (Phase 2)
-- **Vector DB**: Milvus (HNSW index, COSINE metric, pymilvus sync client)
-- **Relational DB**: PostgreSQL with SQLAlchemy 2.0 async ORM + Alembic migrations
-- **Object Storage**: MinIO (raw docs in `/raw-docs/`, table screenshots in `/table-images/`)
-- **PDF Parsing**: pymupdf (fitz)
-- **Word Parsing**: python-docx
-- **Excel Parsing**: openpyxl
-- **Cache/Broker**: Redis (available, deferred to Phase 4)
-- **Task Queue**: Synchronous in Phase 1; Celery + Redis planned for Phase 4
-- **Config**: pydantic-settings, `.env` file, runtime-adjustable parameters in `system_config` table
-- **DI Pattern**: Manual assembly via `app.state` in `src/main.py`
-
-## API Endpoints
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/api/v1/documents` | Upload document (multipart/form-data), returns `document_id` |
-| POST | `/api/v1/query` | Query (JSON), returns answer + sources + signed image URLs |
-| WebSocket | `/api/v1/query/ws` | Streaming query (SSE-style) |
-| POST | `/api/v1/retrieve` | Retrieval — specify strategy (vector/BM25/hybrid) and weights |
+1. **Ingestion (`src/ingestion/`)** — Document parsing (PDF/Word/Excel), paragraph boundary detection, table screenshots + rule-based descriptions, MixedChunk assembly, embedding, sync pipeline
+2. **Storage (`src/storage/`)** — Milvus (vector DB), PostgreSQL (document/chunk records), MinIO (raw docs + table images). Abstract interfaces via `StoragePort` in `ports.py`
+3. **Retrieval (`src/retrieval/`)** — Vector search, BM25 full-text search, hybrid search with RRF fusion, chunk merge. Pipeline design — each node independently replaceable
+4. **Orchestration (`src/orchestration/`)** — RAGOrchestrator chains retrieval → prompt building → LLM call → response. Streaming + timeout support
+5. **API (`src/api/`)** — FastAPI REST + WebSocket. Manual DI via `app.state`
 
 ## Key Design Decisions
 
-- **MixedChunk**: A single chunk can contain interleaved text and table elements. `full_text` (concatenated content) is vectorized; `image_url` stores table screenshots but never enters the LLM prompt
+- **MixedChunk**: A single chunk can contain interleaved text and table elements. `full_text` is vectorized; `image_url` stores table screenshots but never enters the LLM prompt
 - **Chunk ID format**: `{doc_id}_p{page}_c{chunk_index}`
 - **StoragePort pattern**: Abstract base classes (`VectorStorePort`, `DocumentStorePort`, `ObjectStorePort`, `CachePort`) in `src/storage/ports.py` decouple business logic from storage implementations
-- **Signed URLs**: All `image_url` values in API responses are MinIO signed URLs (1-hour expiry), generated by `SignedUrlService`. Internal paths never exposed externally
-- **Parser plugin registry**: `BaseParser` implementations register by file type; `ParserRegistry` dispatches by extension. Phase 1 parsers: `PDFParser` (pymupdf), `WordParser` (python-docx), `ExcelParser` (openpyxl)
+- **Signed URLs**: All `image_url` in API responses are MinIO signed URLs (1-hour expiry) via `SignedUrlService`. Internal paths never exposed externally
+- **Parser plugin registry**: `BaseParser` implementations register by file type; `ParserRegistry` dispatches by extension
 - **Paragraph boundary detection**: Custom logic groups flat Element lists by coordinate proximity + semantic cues before chunking
-- **Table description**: Phase 1 uses rule-based extraction only (列名:值 format). Qwen-VL visual model deferred to Phase 3
-- **Legacy format support**: Phase 1 only supports .docx/.xlsx/.pdf. Old formats (.doc, .xls) require LibreOffice conversion, deferred to later phases
+- **Table description**: Rule-based extraction only (列名:值 format). Qwen-VL deferred to later phase
 - **Incremental Milvus updates**: New documents added without rebuilding the entire vector index
 
 ## Commands
@@ -82,140 +50,87 @@ docker-compose up -d
 python scripts/init_milvus.py
 ```
 
-## Directory Structure (Planned)
+## API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/v1/documents` | Upload document (multipart/form-data) |
+| GET | `/api/v1/documents` | List documents |
+| POST | `/api/v1/query` | Query (JSON), returns answer + sources + signed image URLs |
+| WebSocket | `/api/v1/query/ws` | Streaming query |
+| POST | `/api/v1/retrieve` | Retrieval — specify strategy (vector/BM25/hybrid) and weights |
+| GET | `/api/v1/chunks` | List chunks |
+| GET | `/api/v1/datasets` | List datasets |
+
+## Directory Structure
 
 ```
-rag-system/
-├── src/                 # All source code
-│   ├── main.py          # FastAPI app entry, manual DI assembly
-│   ├── api/             # User-facing API
-│   │   ├── routers/     # documents, query, debug, chunks, datasets
-│   │   ├── schemas/     # Pydantic request/response models
-│   │   └── middleware/  # Error handling
-│   ├── config/
-│   │   └── settings.py  # pydantic-settings, .env support
-│   ├── models/          # Shared data structures
-│   │   └── chunks.py    # ContentElement, ChunkMetadata, MixedChunk, RetrievedChunk
-│   ├── ingestion/       # Data ingestion layer
-│   │   ├── parsers/     # Document parsers (plugin registry)
-│   │   │   ├── base.py  # BaseParser + ParsedElement
-│   │   │   ├── pdf_parser.py   # pymupdf
-│   │   │   ├── word_parser.py  # python-docx
-│   │   │   ├── excel_parser.py # openpyxl
-│   │   │   └── registry.py     # ParserRegistry factory
-│   │   ├── chunkers/    # Paragraph grouping + chunk assembly
-│   │   ├── table_processor/ # Table screenshots + rule-based descriptions
-│   │   ├── embedder.py  # DashScope text-embedding-v2 wrapper
-│   │   └── pipeline.py  # Ingestion orchestration (sync)
-│   ├── storage/         # Storage layer
-│   │   ├── ports.py     # Abstract interfaces (StoragePort pattern)
-│   │   ├── milvus_store.py  # pymilvus sync client
-│   │   ├── pg_store.py      # SQLAlchemy 2.0 async ORM
-│   │   ├── oss_store.py     # MinIO
-│   │   └── signed_url_service.py
-│   ├── retrieval/       # Retrieval layer
-│   │   ├── vector_search.py  # Vector search
-│   │   ├── bm25_search.py    # BM25 full-text search
-│   │   ├── hybrid_search.py  # Hybrid search
-│   │   ├── rrf_fusion.py     # RRF fusion
-│   │   └── chunk_merge.py    # Chunk merge
-│   └── orchestration/   # Orchestration layer
-│       ├── orchestrator.py   # RAGOrchestrator
-│       ├── prompt_builder.py
-│       └── llm_client.py     # DashScope Qwen client
-├── alembic/             # Database migrations
-├── tests/
-│   ├── unit/            # Unit tests (mocked storage)
-│   └── integration/     # Integration tests with real test-files
-├── scripts/
-├── test-files/          # Real power engineering documents for dev/test
-└── docker-compose.yml   # PostgreSQL, Milvus, MinIO
+src/
+├── main.py                  # FastAPI entry, manual DI assembly
+├── config/settings.py       # pydantic-settings, .env
+├── models/                  # Shared data models (chunks.py, documents.py)
+├── api/
+│   ├── routers/             # documents, query, retrieve, chunks, datasets
+│   ├── schemas/             # Pydantic request/response
+│   └── middleware/          # Error handler
+├── ingestion/
+│   ├── parsers/             # PDF, Word, Excel parsers + registry
+│   ├── chunkers/            # Paragraph grouper, layout detector, chunk assembler
+│   ├── table_processor/     # Screenshot, rule-based describer
+│   ├── embedder.py          # DashScope embedding
+│   └── pipeline.py          # Ingestion orchestration
+├── storage/
+│   ├── ports.py             # Abstract interfaces
+│   ├── milvus_store.py      # pymilvus vector store
+│   ├── pg_store.py          # SQLAlchemy async ORM
+│   ├── pg_models.py         # ORM models
+│   ├── oss_store.py         # MinIO
+│   └── signed_url_service.py
+├── retrieval/
+│   ├── vector_search.py     # Vector search
+│   ├── bm25_search.py       # BM25 full-text
+│   ├── hybrid_search.py     # Hybrid search
+│   ├── rrf_fusion.py        # RRF fusion
+│   └── chunk_merge.py       # Chunk merge
+└── orchestration/
+    ├── orchestrator.py      # RAGOrchestrator
+    ├── prompt_builder.py    # Prompt construction
+    └── llm_client.py        # DashScope Qwen client
 ```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.11 |
+| Web | FastAPI + Uvicorn |
+| LLM | Qwen (DashScope API) |
+| Embedding | text-embedding-v2 (1024-dim) |
+| Vector DB | Milvus (HNSW, COSINE) |
+| Relational DB | PostgreSQL + SQLAlchemy 2.0 async + Alembic |
+| Object Storage | MinIO |
+| PDF | pymupdf |
+| Word | python-docx |
+| Excel | openpyxl |
+| Config | pydantic-settings + `.env` |
 
 ## Reference Documents
 
-- `docs/RAG系统设计文档.md` — Full system design (architecture, data flow, tech selection, monitoring strategy)
-- `docs/RAG系统开发任务清单.md` — Detailed task breakdown (TASK-001 through TASK-050) with interface definitions, SQL DDL, and dependency graph
-- `docs/配置信息.txt` — Service credentials (migrate to `.env`, do NOT commit)
-- `test-files/` — Real power engineering documents (.docx, .pdf, .xlsx) for development and integration testing
-
-## Phase 1 Technical Decisions
-
-Decisions made before implementation, recorded here for reference:
-
-| # | Decision | Choice | Rationale |
-|---|----------|--------|-----------|
-| 1 | Embedding | DashScope text-embedding-v2 (1024-dim) | Saves GPU resources; unified with DashScope ecosystem |
-| 2 | LLM | DashScope cloud API (Qwen) | Zero deployment; faster Phase 1 iteration |
-| 3 | Qwen-VL (table vision) | Deferred to Phase 3 | Rule-based description sufficient for structured power engineering tables |
-| 4 | Async ingestion | Sync in Phase 1; Celery deferred to Phase 4 | Simpler debugging; no Celery-on-Windows issues |
-| 5 | Vector DB | Milvus (already deployed locally) | Per original design |
-| 6 | Redis | Available but unused in Phase 1; caching deferred to Phase 4 | Not needed for minimal viable version |
-| 7 | DB access | SQLAlchemy 2.0 async ORM + Alembic | Matches FastAPI async model; mature migration tooling |
-| 8 | Milvus client | pymilvus sync | No native async support; sync is simpler and sufficient |
-| 9 | PDF parsing | pymupdf (fitz) | Fast, precise table extraction, coordinate support |
-| 10 | Word parsing | python-docx | Direct table structure access including merged cells |
-| 11 | Legacy .doc/.xls | Not supported in Phase 1 | Requires LibreOffice; same content available in .pdf/.docx |
-| 12 | Excel .xlsx | Supported via openpyxl | Power engineering has many Excel data files (tower stats, etc.) |
-| 13 | DI pattern | Manual assembly via app.state | Few components; straightforward; no extra dependency |
-| 14 | Testing | Unit tests (mocked storage) + real document integration tests | Core logic isolated; main chain verified with real files |
-| 15 | Python | 3.11 (local version) | Stable, full ecosystem compatibility |
-
-## Phase 1 Development Order
-
-```
-Batch 1: Project skeleton
-  TASK-001 (directory structure + requirements + docker-compose)
-  TASK-006 (shared data models)
-  TASK-038 (settings.py)
-
-Batch 2: Storage layer
-  TASK-002 (PostgreSQL DDL + Alembic)
-  TASK-003 (Milvus collection init)
-  TASK-004 (MinIO object storage)
-  TASK-005 (StoragePort interfaces)
-
-Batch 3: Ingestion layer
-  TASK-007 (PDF Parser - pymupdf)
-  TASK-008 (Word Parser - python-docx)
-  ExcelParser (new - openpyxl)
-  TASK-009 (Parser registry)
-  TASK-010 (paragraph boundary detection)
-  TASK-011 (table screenshot)
-  TASK-012 (table semantic description - rules only)
-  TASK-013 (MixedChunk assembler)
-  TASK-014 (Embedder - DashScope)
-  TASK-015 (ingestion pipeline - sync)
-
-Batch 4: Retrieval + orchestration
-  TASK-016 (LLM client - DashScope)
-  TASK-017 (Prompt builder)
-  TASK-018 (vector search)
-  TASK-019 (orchestrator)
-
-Batch 5: API layer
-  TASK-020 (document upload)
-  TASK-021 (document status query)
-  TASK-022 (query endpoint)
-  TASK-023b (debug retrieval endpoint)
-```
+- `docs/RAG系统设计文档.md` — System design (architecture, data flow, tech selection)
+- `docs/RAG系统开发任务清单.md` — Task breakdown with interface definitions and SQL DDL
 
 ## Out of Scope
 
-The following are explicitly **not** part of this project:
-- Frontend UI / admin dashboard pages
+- Frontend UI / admin dashboard
 - Mobile adaptation
 - Multi-tenant isolation
-- Internationalization beyond Chinese and English
 - Document version management
-- User registration/management (auth relies on external API Key/JWT)
-- Load balancing / horizontal scaling deployment
-- CI/CD pipeline configuration
-- vLLM local model deployment (using DashScope cloud API instead)
-- PDF OCR processing (relies on pymupdf capabilities)
-- Qwen-VL visual model (deferred to Phase 3, Phase 1 uses rule-based table description)
+- User registration/management
+- Load balancing / horizontal scaling
+- CI/CD pipeline
+- Legacy formats (.doc, .xls) — require LibreOffice
 
 ## 注意
 
-- 在实现过程中及时提交 **feature** , 确保测试用例通过
-- 确保逻辑完整，不可使用 **TODO** 
+- 在实现过程中及时提交 **feature**，确保测试用例通过
+- 确保逻辑完整，不可使用 **TODO**
