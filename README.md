@@ -116,6 +116,21 @@ pytest
 pytest tests/unit/test_xxx.py -k "test_name"
 ```
 
+## 代码格式检查
+
+使用 [Ruff](https://docs.astral.sh/ruff/) 进行 lint 检查和代码格式化（已包含在 dev 依赖中）。
+
+```bash
+# 检查代码问题
+ruff check src/ tests/
+
+# 自动修复可修复的问题
+ruff check src/ tests/ --fix
+
+# 格式化代码
+ruff format src/ tests/
+```
+
 ## 项目结构
 
 ```

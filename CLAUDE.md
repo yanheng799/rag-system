@@ -48,6 +48,15 @@ docker-compose up -d
 
 # Initialize Milvus collection
 python scripts/init_milvus.py
+
+# Lint check
+ruff check src/ tests/
+
+# Auto-fix lint issues
+ruff check src/ tests/ --fix
+
+# Format code
+ruff format src/ tests/
 ```
 
 ## API Endpoints
