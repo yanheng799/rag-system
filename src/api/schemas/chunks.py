@@ -107,3 +107,17 @@ class UnlinkResponse(BaseModel):
     """取消关联结果"""
 
     unlinked_count: int
+
+
+class EditChunkRequest(BaseModel):
+    """编辑分块内容"""
+
+    full_text: str = Field(..., min_length=1, description="新的分块文本内容")
+
+
+class EditChunkResponse(BaseModel):
+    """编辑结果"""
+
+    chunk_id: str
+    full_text: str
+    char_count: int

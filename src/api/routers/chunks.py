@@ -12,6 +12,8 @@ from src.api.schemas.chunks import (
     ChunkDetail,
     ChunkListItem,
     ChunkListResponse,
+    EditChunkRequest,
+    EditChunkResponse,
     LinkRequest,
     LinkResponse,
     MergeRequest,
@@ -179,6 +181,70 @@ async def get_chunk_detail(request: Request, chunk_id: str):
         image_urls=chunk.image_urls if isinstance(chunk.image_urls, list) else [],
         group_id=chunk.group_id,
         created_at=chunk.created_at,
+    )
+
+
+# ---- 编辑分块内容 ----
+
+
+@router.put(
+    "/chunks/{chunk_id}",
+    response_model=EditChunkResponse,
+    summary="编辑分块内容",
+)
+async def edit_chunk(request: Request, chunk_id: str, body: EditChunkRequest):
+    """编辑分块文本内容，同步更新 PG + Milvus 向量和 BM25 索引"""
+    import json
+
+    pg_store = request.app.state.pg_store
+    milvus_store = request.app.state.milvus_store
+    embedder = request.app.state.embedder
+
+    chunk = await pg_store.get_chunk(chunk_id)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="分块不存在")
+
+    new_text = body.full_text.strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="文本内容不能为空")
+
+    new_char_count = len(new_text)
+
+    # 重新 embedding
+    embedding = embedder.embed_single(new_text)
+
+    # Milvus: delete + re-insert（保留其他字段，更新 full_text/embedding/char_count）
+    if milvus_store._collection is None:
+        milvus_store.init_collection()
+    collection = milvus_store._collection
+
+    results = collection.query(
+        expr=f'chunk_id == "{chunk_id}"',
+        output_fields=[
+            "chunk_id", "doc_id", "chunk_type", "elements", "image_urls",
+            "source", "page", "chunk_index", "created_at", "pages", "group_id",
+        ],
+    )
+
+    milvus_store.delete_by_chunk_ids([chunk_id])
+
+    if results:
+        r = results[0]
+        for field in ("elements", "image_urls", "pages"):
+            if isinstance(r.get(field), str):
+                r[field] = json.loads(r[field])
+        r["full_text"] = new_text
+        r["embedding"] = embedding
+        r["char_count"] = new_char_count
+        milvus_store.insert([r])
+
+    # PG: 更新 full_text 和 char_count
+    await pg_store.update_chunk_full_text(chunk_id, new_text, new_char_count)
+
+    return EditChunkResponse(
+        chunk_id=chunk_id,
+        full_text=new_text,
+        char_count=new_char_count,
     )
 
 

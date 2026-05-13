@@ -108,6 +108,10 @@ class DocumentStorePort(ABC):
         """按 chunk_id 列表将分块的 group_id 清空，返回更新数量"""
 
     @abstractmethod
+    async def update_chunk_full_text(self, chunk_id: str, full_text: str, char_count: int) -> bool:
+        """更新分块的 full_text 和 char_count，返回是否成功"""
+
+    @abstractmethod
     async def save_query_log(self, log: QueryLogRecord) -> None:
         """保存查询日志"""
 

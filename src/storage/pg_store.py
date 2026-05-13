@@ -273,6 +273,13 @@ class PgStore(DocumentStorePort):
             await session.commit()
             return result.rowcount
 
+    async def update_chunk_full_text(self, chunk_id: str, full_text: str, char_count: int) -> bool:
+        async with self._session_factory() as session:
+            stmt = update(ChunkORM).where(ChunkORM.chunk_id == chunk_id).values(full_text=full_text, char_count=char_count)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+
     # ---- 数据集管理 ----
 
     @staticmethod
