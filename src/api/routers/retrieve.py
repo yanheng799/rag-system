@@ -52,15 +52,6 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
     )
     retrieval_ms = int((time.time() - start_time) * 1000)
 
-    # 构建 prompt（可选）
-    prompt_text = None
-    if body.show_prompt:
-        from src.orchestration.prompt_builder import PromptBuilder
-
-        prompt_builder = PromptBuilder()
-        messages = prompt_builder.build(body.question, chunks)
-        prompt_text = messages[1]["content"] if len(messages) > 1 else ""
-
     signed_url_service = request.app.state.signed_url_service
     pg_store = request.app.state.pg_store
 
@@ -109,5 +100,4 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         total_retrieved=len(debug_chunks),
         retrieval_ms=retrieval_ms,
         chunks=debug_chunks,
-        prompt=prompt_text,
     )
