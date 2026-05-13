@@ -1,7 +1,5 @@
 """Prompt 构建器测试"""
 
-import pytest
-
 from src.models.chunks import (
     ChunkMetadata,
     ContentElement,

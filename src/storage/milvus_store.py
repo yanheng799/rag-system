@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
 
-from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, Function, FunctionType, connections
-from pymilvus import utility
+from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, Function, FunctionType, connections, utility
 
 from src.config.settings import settings
 from src.storage.ports import VectorStorePort
@@ -20,14 +18,14 @@ class MilvusStore(VectorStorePort):
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        collection_name: Optional[str] = None,
+        host: str | None = None,
+        port: int | None = None,
+        collection_name: str | None = None,
     ):
         self._host = host or settings.milvus_host
         self._port = port or settings.milvus_port
         self._collection_name = collection_name or settings.milvus_collection
-        self._collection: Optional[Collection] = None
+        self._collection: Collection | None = None
 
     def _connect(self) -> None:
         """建立 Milvus 连接"""
@@ -40,12 +38,8 @@ class MilvusStore(VectorStorePort):
     def _get_schema(self) -> CollectionSchema:
         """定义 Collection Schema（含 BM25 全文检索）"""
         fields = [
-            FieldSchema(
-                "id", DataType.INT64, is_primary=True, auto_id=True
-            ),
-            FieldSchema(
-                "embedding", DataType.FLOAT_VECTOR, dim=settings.embedding_dimension
-            ),
+            FieldSchema("id", DataType.INT64, is_primary=True, auto_id=True),
+            FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=settings.embedding_dimension),
             FieldSchema("chunk_id", DataType.VARCHAR, max_length=128),
             FieldSchema("doc_id", DataType.VARCHAR, max_length=64),
             FieldSchema("full_text", DataType.VARCHAR, max_length=32768, enable_analyzer=True),
@@ -81,9 +75,7 @@ class MilvusStore(VectorStorePort):
             self._collection = Collection(self._collection_name)
         else:
             schema = self._get_schema()
-            self._collection = Collection(
-                name=self._collection_name, schema=schema
-            )
+            self._collection = Collection(name=self._collection_name, schema=schema)
             # 创建 HNSW 索引
             index_params = {
                 "metric_type": settings.milvus_metric_type,
@@ -93,9 +85,7 @@ class MilvusStore(VectorStorePort):
                     "efConstruction": settings.milvus_hnsw_ef_construction,
                 },
             }
-            self._collection.create_index(
-                field_name="embedding", index_params=index_params
-            )
+            self._collection.create_index(field_name="embedding", index_params=index_params)
             # 创建 BM25 稀疏索引
             sparse_index_params = {
                 "index_type": "SPARSE_INVERTED_INDEX",
@@ -106,9 +96,7 @@ class MilvusStore(VectorStorePort):
                     "bm25_b": settings.bm25_b,
                 },
             }
-            self._collection.create_index(
-                field_name="sparse_embedding", index_params=sparse_index_params
-            )
+            self._collection.create_index(field_name="sparse_embedding", index_params=sparse_index_params)
             logger.info(
                 "Milvus Collection '%s' 创建成功，索引类型: %s",
                 self._collection_name,
@@ -149,7 +137,7 @@ class MilvusStore(VectorStorePort):
         self,
         embedding: list[float],
         top_k: int = 50,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[dict]:
         """向量检索"""
         if self._collection is None:
@@ -174,9 +162,19 @@ class MilvusStore(VectorStorePort):
             limit=top_k,
             expr=expr,
             output_fields=[
-                "chunk_id", "doc_id", "full_text", "chunk_type",
-                "elements", "image_urls", "source", "page",
-                "chunk_index", "char_count", "created_at", "pages", "group_id",
+                "chunk_id",
+                "doc_id",
+                "full_text",
+                "chunk_type",
+                "elements",
+                "image_urls",
+                "source",
+                "page",
+                "chunk_index",
+                "char_count",
+                "created_at",
+                "pages",
+                "group_id",
             ],
         )
 
@@ -206,7 +204,7 @@ class MilvusStore(VectorStorePort):
         self,
         query_text: str,
         top_k: int = 50,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[dict]:
         """BM25 全文检索"""
         if self._collection is None:
@@ -231,9 +229,19 @@ class MilvusStore(VectorStorePort):
             limit=top_k,
             expr=expr,
             output_fields=[
-                "chunk_id", "doc_id", "full_text", "chunk_type",
-                "elements", "image_urls", "source", "page",
-                "chunk_index", "char_count", "created_at", "pages", "group_id",
+                "chunk_id",
+                "doc_id",
+                "full_text",
+                "chunk_type",
+                "elements",
+                "image_urls",
+                "source",
+                "page",
+                "chunk_index",
+                "char_count",
+                "created_at",
+                "pages",
+                "group_id",
             ],
         )
 
@@ -268,29 +276,41 @@ class MilvusStore(VectorStorePort):
         results = self._collection.query(
             expr=expr,
             output_fields=[
-                "chunk_id", "doc_id", "full_text", "chunk_type",
-                "elements", "image_urls", "source", "page",
-                "chunk_index", "char_count", "created_at", "pages", "group_id",
+                "chunk_id",
+                "doc_id",
+                "full_text",
+                "chunk_type",
+                "elements",
+                "image_urls",
+                "source",
+                "page",
+                "chunk_index",
+                "char_count",
+                "created_at",
+                "pages",
+                "group_id",
             ],
         )
         records = []
         for hit in results:
-            records.append({
-                "id": hit.get("id"),
-                "chunk_id": hit.get("chunk_id"),
-                "doc_id": hit.get("doc_id"),
-                "full_text": hit.get("full_text"),
-                "chunk_type": hit.get("chunk_type"),
-                "elements": json.loads(hit.get("elements", "[]")),
-                "image_urls": json.loads(hit.get("image_urls", "[]")),
-                "source": hit.get("source"),
-                "page": hit.get("page"),
-                "chunk_index": hit.get("chunk_index"),
-                "char_count": hit.get("char_count"),
-                "created_at": hit.get("created_at"),
-                "pages": json.loads(hit.get("pages", "[]")),
-                "group_id": hit.get("group_id", ""),
-            })
+            records.append(
+                {
+                    "id": hit.get("id"),
+                    "chunk_id": hit.get("chunk_id"),
+                    "doc_id": hit.get("doc_id"),
+                    "full_text": hit.get("full_text"),
+                    "chunk_type": hit.get("chunk_type"),
+                    "elements": json.loads(hit.get("elements", "[]")),
+                    "image_urls": json.loads(hit.get("image_urls", "[]")),
+                    "source": hit.get("source"),
+                    "page": hit.get("page"),
+                    "chunk_index": hit.get("chunk_index"),
+                    "char_count": hit.get("char_count"),
+                    "created_at": hit.get("created_at"),
+                    "pages": json.loads(hit.get("pages", "[]")),
+                    "group_id": hit.get("group_id", ""),
+                }
+            )
         return records
 
     def delete_by_doc_id(self, doc_id: str) -> None:

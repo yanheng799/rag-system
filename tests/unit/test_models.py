@@ -1,14 +1,12 @@
 """共享数据模型测试"""
 
-import pytest
-
 from src.models.chunks import (
     ChunkMetadata,
     ContentElement,
     MixedChunk,
     RetrievedChunk,
 )
-from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord
+from src.models.documents import DatasetRecord, DocumentRecord
 
 
 class TestContentElement:

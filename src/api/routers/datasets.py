@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -28,7 +29,7 @@ async def create_dataset(request: Request, body: DatasetCreateRequest):
             description=body.description,
         )
     except Exception:
-        raise HTTPException(status_code=409, detail="数据集名称已存在")
+        raise HTTPException(status_code=409, detail="数据集名称已存在") from None
 
     doc_count = await pg_store.count_docs_by_dataset(dataset_id)
     return DatasetResponse(
@@ -66,9 +67,7 @@ async def list_datasets(
     return DatasetListResponse(total=total, page=page, size=size, items=items)
 
 
-@router.get(
-    "/{dataset_id}", response_model=DatasetResponse, summary="数据集详情"
-)
+@router.get("/{dataset_id}", response_model=DatasetResponse, summary="数据集详情")
 async def get_dataset(request: Request, dataset_id: str):
     pg_store = request.app.state.pg_store
     record = await pg_store.get_dataset(dataset_id)
@@ -86,12 +85,8 @@ async def get_dataset(request: Request, dataset_id: str):
     )
 
 
-@router.patch(
-    "/{dataset_id}", response_model=DatasetResponse, summary="更新数据集"
-)
-async def update_dataset(
-    request: Request, dataset_id: str, body: DatasetUpdateRequest
-):
+@router.patch("/{dataset_id}", response_model=DatasetResponse, summary="更新数据集")
+async def update_dataset(request: Request, dataset_id: str, body: DatasetUpdateRequest):
     pg_store = request.app.state.pg_store
     existing = await pg_store.get_dataset(dataset_id)
     if existing is None:
@@ -104,7 +99,7 @@ async def update_dataset(
             description=body.description,
         )
     except Exception:
-        raise HTTPException(status_code=409, detail="数据集名称已存在")
+        raise HTTPException(status_code=409, detail="数据集名称已存在") from None
 
     doc_count = await pg_store.count_docs_by_dataset(dataset_id)
     return DatasetResponse(
@@ -141,23 +136,20 @@ async def delete_dataset(
     # 级联删除：向量、OSS 文件、PG 记录
     if doc_count > 0:
         from sqlalchemy import select
+
         from src.storage.pg_models import DocumentORM
 
         async with pg_store.get_session() as session:
             result = await session.execute(
-                select(DocumentORM.doc_id, DocumentORM.raw_file_url).where(
-                    DocumentORM.dataset_id == dataset_id
-                )
+                select(DocumentORM.doc_id, DocumentORM.raw_file_url).where(DocumentORM.dataset_id == dataset_id)
             )
             docs = result.all()
 
         for doc_id, raw_file_url in docs:
             milvus_store.delete_by_doc_id(doc_id)
             if raw_file_url:
-                try:
+                with contextlib.suppress(Exception):
                     oss_store.delete(raw_file_url)
-                except Exception:
-                    pass
 
     await pg_store.delete_dataset(dataset_id)
 

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.models.chunks import RetrievedChunk
 from src.config.settings import settings
+from src.models.chunks import RetrievedChunk
 
 
 def rrf_fuse(

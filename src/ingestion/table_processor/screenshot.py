@@ -129,8 +129,13 @@ class TableScreenshot:
         try:
             result = subprocess.run(
                 [
-                    "soffice", "--headless", "--convert-to", "pdf",
-                    "--outdir", output_dir, docx_path,
+                    "soffice",
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    output_dir,
+                    docx_path,
                 ],
                 capture_output=True,
                 timeout=60,

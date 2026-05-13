@@ -15,5 +15,5 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         except Exception as exc:
             return JSONResponse(
                 status_code=500,
-                content={"detail": f"内部服务器错误: {str(exc)}"},
+                content={"detail": f"内部服务器错误: {exc!s}"},
             )

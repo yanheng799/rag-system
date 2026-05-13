@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from src.models.chunks import RetrievedChunk
 from src.retrieval.chunk_merge import hit_to_chunk, merge_grouped_chunks
@@ -22,7 +21,7 @@ class BM25Searcher:
         self,
         question: str,
         top_k: int = 50,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[RetrievedChunk]:
         """
         BM25 检索流程：

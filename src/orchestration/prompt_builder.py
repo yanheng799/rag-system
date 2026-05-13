@@ -30,10 +30,7 @@ class PromptBuilder:
         """
         context_parts = []
         for idx, chunk in enumerate(chunks, 1):
-            header = (
-                f"[来源{idx} - {chunk.metadata.source} "
-                f"第{chunk.metadata.page}页 - {chunk.metadata.chunk_type}]"
-            )
+            header = f"[来源{idx} - {chunk.metadata.source} 第{chunk.metadata.page}页 - {chunk.metadata.chunk_type}]"
             # 只用 content，image_url 不进入 Prompt
             element_contents = []
             for elem in chunk.elements:

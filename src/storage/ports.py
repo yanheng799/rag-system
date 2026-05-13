@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
-from src.models.chunks import RetrievedChunk
 from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord
 
 
@@ -25,7 +23,7 @@ class VectorStorePort(ABC):
         self,
         embedding: list[float],
         top_k: int = 50,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[dict]:
         """向量检索，返回匹配结果列表"""
 
@@ -50,29 +48,23 @@ class DocumentStorePort(ABC):
         """保存文档记录"""
 
     @abstractmethod
-    async def update_status(
-        self, doc_id: str, status: str, error_msg: Optional[str] = None
-    ) -> None:
+    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None) -> None:
         """更新文档处理状态"""
 
     @abstractmethod
-    async def get_document(self, doc_id: str) -> Optional[DocumentRecord]:
+    async def get_document(self, doc_id: str) -> DocumentRecord | None:
         """查询文档记录"""
 
     @abstractmethod
-    async def get_document_by_hash(self, content_hash: str) -> Optional[DocumentRecord]:
+    async def get_document_by_hash(self, content_hash: str) -> DocumentRecord | None:
         """按文件内容哈希查询文档记录"""
 
     @abstractmethod
-    async def update_document_for_reingest(
-        self, doc_id: str, filename: str, file_size: int, raw_file_url: str
-    ) -> None:
+    async def update_document_for_reingest(self, doc_id: str, filename: str, file_size: int, raw_file_url: str) -> None:
         """重置文档记录以重新摄入"""
 
     @abstractmethod
-    async def list_documents(
-        self, page: int = 1, size: int = 20
-    ) -> tuple[list[DocumentRecord], int]:
+    async def list_documents(self, page: int = 1, size: int = 20) -> tuple[list[DocumentRecord], int]:
         """分页查询文档列表，返回 (记录列表, 总数)"""
 
     @abstractmethod
@@ -88,7 +80,7 @@ class DocumentStorePort(ABC):
         """删除文档下所有分块记录，返回删除数量"""
 
     @abstractmethod
-    async def get_chunk(self, chunk_id: str) -> Optional[ChunkRecord]:
+    async def get_chunk(self, chunk_id: str) -> ChunkRecord | None:
         """查询单个分块记录"""
 
     @abstractmethod
@@ -96,9 +88,7 @@ class DocumentStorePort(ABC):
         """按 chunk_id 列表批量查询分块记录"""
 
     @abstractmethod
-    async def list_chunks_by_doc(
-        self, doc_id: str, page: int = 1, size: int = 20
-    ) -> tuple[list[ChunkRecord], int]:
+    async def list_chunks_by_doc(self, doc_id: str, page: int = 1, size: int = 20) -> tuple[list[ChunkRecord], int]:
         """分页查询文档下的分块列表，按 page + chunk_index 排序"""
 
     @abstractmethod
@@ -128,28 +118,26 @@ class DocumentStorePort(ABC):
         self,
         dataset_id: str,
         name: str,
-        description: Optional[str] = None,
-        created_by: Optional[str] = None,
+        description: str | None = None,
+        created_by: str | None = None,
     ) -> DatasetRecord:
         """创建数据集"""
 
     @abstractmethod
-    async def get_dataset(self, dataset_id: str) -> Optional[DatasetRecord]:
+    async def get_dataset(self, dataset_id: str) -> DatasetRecord | None:
         """查询数据集"""
 
     @abstractmethod
-    async def list_datasets(
-        self, page: int = 1, size: int = 20
-    ) -> tuple[list[DatasetRecord], int]:
+    async def list_datasets(self, page: int = 1, size: int = 20) -> tuple[list[DatasetRecord], int]:
         """分页查询数据集列表，返回 (记录列表, 总数)"""
 
     @abstractmethod
     async def update_dataset(
         self,
         dataset_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> Optional[DatasetRecord]:
+        name: str | None = None,
+        description: str | None = None,
+    ) -> DatasetRecord | None:
         """更新数据集名称或描述"""
 
     @abstractmethod
@@ -185,15 +173,11 @@ class ObjectStorePort(ABC):
         """上传原始文档，返回内部路径"""
 
     @abstractmethod
-    def upload_table_image(
-        self, doc_id: str, page: int, table_index: int, image: bytes
-    ) -> str:
+    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes) -> str:
         """上传表格截图，返回内部路径"""
 
     @abstractmethod
-    def upload_doc_image(
-        self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png"
-    ) -> str:
+    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png") -> str:
         """上传文档图片，返回内部路径"""
 
     @abstractmethod
@@ -213,7 +197,7 @@ class CachePort(ABC):
     """缓存接口（Phase 4 激活）"""
 
     @abstractmethod
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         """获取缓存值"""
 
     @abstractmethod

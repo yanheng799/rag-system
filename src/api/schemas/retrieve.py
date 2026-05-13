@@ -1,6 +1,6 @@
 """检索接口 Pydantic 模型"""
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,9 +10,9 @@ class RetrieveRequest(BaseModel):
     top_k: int = Field(default=10, ge=1, le=50)
     search_mode: Literal["vector", "bm25", "hybrid"] = "vector"
     show_prompt: bool = False
-    dataset_ids: Optional[list[str]] = None
-    doc_ids: Optional[list[str]] = None
-    doc_names: Optional[list[str]] = None
+    dataset_ids: list[str] | None = None
+    doc_ids: list[str] | None = None
+    doc_names: list[str] | None = None
 
 
 class ChunkMetadataResult(BaseModel):
@@ -30,7 +30,7 @@ class ChunkMetadataResult(BaseModel):
 class ChunkScores(BaseModel):
     vector_score: float = 0.0
     bm25_score: float = 0.0
-    rrf_score: Optional[float] = None
+    rrf_score: float | None = None
 
 
 class RetrievedChunkResult(BaseModel):
@@ -47,4 +47,4 @@ class RetrieveResponse(BaseModel):
     total_retrieved: int
     retrieval_ms: int
     chunks: list[RetrievedChunkResult]
-    prompt: Optional[str] = None
+    prompt: str | None = None

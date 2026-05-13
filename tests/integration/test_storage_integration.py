@@ -1,15 +1,11 @@
 """集成测试：PostgreSQL 存储 + Milvus + MinIO + Embedder"""
 
-import asyncio
-import os
 import uuid
 
 import pytest
 
-from src.config.settings import settings
-
-
 # ---- PostgreSQL 集成测试 ----
+
 
 class TestPgStoreIntegration:
     """PostgreSQL 存储集成测试"""
@@ -17,6 +13,7 @@ class TestPgStoreIntegration:
     @pytest.fixture
     def pg_store(self):
         from src.storage.pg_store import PgStore
+
         return PgStore()
 
     def test_pg_store_init(self, pg_store):
@@ -64,11 +61,14 @@ class TestPgStoreIntegration:
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         from src.models.documents import DocumentRecord
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            filename="test.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
-        ))
+
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
 
         chunk = ChunkRecord(
             chunk_id=f"{doc_id}_p1_c0",
@@ -85,14 +85,16 @@ class TestPgStoreIntegration:
 
     @pytest.mark.asyncio
     async def test_delete_chunks_by_doc(self, pg_store):
-        from src.models.documents import DocumentRecord, ChunkRecord
+        from src.models.documents import ChunkRecord, DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            filename="test.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
 
         chunk = ChunkRecord(
             chunk_id=f"{doc_id}_p1_c0",
@@ -116,12 +118,11 @@ class TestDatasetPgIntegration:
     @pytest.fixture
     def pg_store(self):
         from src.storage.pg_store import PgStore
+
         return PgStore()
 
     @pytest.mark.asyncio
     async def test_create_and_get_dataset(self, pg_store):
-        from src.models.documents import DatasetRecord
-
         dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
         record = await pg_store.create_dataset(
             dataset_id=dataset_id,
@@ -188,12 +189,14 @@ class TestDatasetPgIntegration:
         assert await pg_store.count_docs_by_dataset(dataset_id) == 0
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            dataset_id=dataset_id,
-            filename="test.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                dataset_id=dataset_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
         assert await pg_store.count_docs_by_dataset(dataset_id) == 1
 
     @pytest.mark.asyncio
@@ -207,12 +210,14 @@ class TestDatasetPgIntegration:
         )
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            dataset_id=dataset_id,
-            filename="test.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                dataset_id=dataset_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
 
         ids = await pg_store.get_doc_ids_by_dataset_ids([dataset_id])
         assert doc_id in ids
@@ -223,11 +228,13 @@ class TestDatasetPgIntegration:
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         unique_name = f"unique_file_{doc_id}.pdf"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            filename=unique_name,
-            raw_file_url=f"raw-docs/{doc_id}/{unique_name}",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename=unique_name,
+                raw_file_url=f"raw-docs/{doc_id}/{unique_name}",
+            )
+        )
 
         ids = await pg_store.get_doc_ids_by_filenames([unique_name])
         assert doc_id in ids
@@ -243,12 +250,14 @@ class TestDatasetPgIntegration:
         )
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            dataset_id=dataset_id,
-            filename="linked.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/linked.pdf",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                dataset_id=dataset_id,
+                filename="linked.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/linked.pdf",
+            )
+        )
 
         fetched = await pg_store.get_document(doc_id)
         assert fetched is not None
@@ -259,11 +268,13 @@ class TestDatasetPgIntegration:
         from src.models.documents import DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        await pg_store.save_document(DocumentRecord(
-            doc_id=doc_id,
-            filename="delete_me.pdf",
-            raw_file_url=f"raw-docs/{doc_id}/delete_me.pdf",
-        ))
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename="delete_me.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/delete_me.pdf",
+            )
+        )
 
         result = await pg_store.delete_document(doc_id)
         assert result is True
@@ -279,12 +290,14 @@ class TestDatasetPgIntegration:
 
 # ---- MinIO 集成测试 ----
 
+
 class TestMinIOIntegration:
     """MinIO 对象存储集成测试"""
 
     @pytest.fixture
     def oss_store(self):
         from src.storage.oss_store import OSSStore
+
         store = OSSStore()
         store.ensure_bucket()
         return store
@@ -312,11 +325,12 @@ class TestMinIOIntegration:
         path = oss_store.upload_raw_doc("test_doc", "delete_test.txt", content)
         oss_store.delete(path)
         # 删除后再下载应失败
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             oss_store.download(path)
 
 
 # ---- Milvus 集成测试 ----
+
 
 class TestMilvusIntegration:
     """Milvus 向量数据库集成测试"""
@@ -324,6 +338,7 @@ class TestMilvusIntegration:
     @pytest.fixture
     def milvus_store(self):
         from src.storage.milvus_store import MilvusStore
+
         store = MilvusStore()
         store.init_collection()
         return store
@@ -366,6 +381,7 @@ class TestMilvusIntegration:
 
 # ---- Embedder 集成测试 ----
 
+
 class TestEmbedderIntegration:
     """DashScope Embedding API 集成测试"""
 
@@ -374,7 +390,7 @@ class TestEmbedderIntegration:
 
         embedder = Embedder()
         vector = embedder.embed_single("测试文本")
-        assert len(vector) == 1536
+        assert len(vector) == 1024
         assert any(v != 0 for v in vector)
 
     def test_embed_batch(self):
@@ -383,11 +399,12 @@ class TestEmbedderIntegration:
         embedder = Embedder()
         vectors = embedder.embed(["测试文本1", "测试文本2"])
         assert len(vectors) == 2
-        assert len(vectors[0]) == 1536
-        assert len(vectors[1]) == 1536
+        assert len(vectors[0]) == 1024
+        assert len(vectors[1]) == 1024
 
 
 # ---- LLM 集成测试 ----
+
 
 class TestLLMIntegration:
     """DashScope LLM API 集成测试"""

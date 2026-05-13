@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from src.ingestion.chunkers.paragraph_grouper import detect_chunk_type
 from src.ingestion.parsers.base import ParsedElement
@@ -20,8 +19,8 @@ class ChunkBuilder:
 
     def __init__(
         self,
-        screenshot: Optional[TableScreenshot] = None,
-        describer: Optional[TableDescriber] = None,
+        screenshot: TableScreenshot | None = None,
+        describer: TableDescriber | None = None,
     ):
         self._screenshot = screenshot
         self._describer = describer or TableDescriber()
@@ -33,7 +32,7 @@ class ChunkBuilder:
         source: str,
         page: int,
         chunk_index: int,
-        pdf_path: Optional[str] = None,
+        pdf_path: str | None = None,
     ) -> MixedChunk:
         """
         将段落组组装为 MixedChunk。
@@ -56,11 +55,7 @@ class ChunkBuilder:
                 img_url = None
 
                 # 尝试截图（需要 PDF 文件路径和截图服务）
-                if (
-                    self._screenshot
-                    and pdf_path
-                    and elem.bbox != (0, 0, 0, 0)
-                ):
+                if self._screenshot and pdf_path and elem.bbox != (0, 0, 0, 0):
                     try:
                         img_url = self._screenshot.capture_pdf_table(
                             pdf_path=pdf_path,
@@ -88,7 +83,8 @@ class ChunkBuilder:
                             except Exception as e:
                                 logger.warning(
                                     "续页表格截图失败: page %d, %s",
-                                    mp["page"], e,
+                                    mp["page"],
+                                    e,
                                 )
 
                 content_elements.append(
@@ -127,7 +123,7 @@ class ChunkBuilder:
                 text_parts.append(elem.content)
 
         full_text = "\n".join(text_parts)
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         all_pages = sorted(set(e.page for e in elements))
         metadata = ChunkMetadata(

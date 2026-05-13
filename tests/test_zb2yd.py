@@ -9,20 +9,22 @@ import pytest
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.ingestion.parsers.pdf_parser import PDFParser
+from src.config.settings import settings
+from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
 from src.ingestion.chunkers.paragraph_grouper import (
     detect_chunk_type,
     group_elements_by_paragraph,
 )
-from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
+from src.ingestion.parsers.pdf_parser import PDFParser
 from src.ingestion.table_processor.describer import TableDescriber
-from src.config.settings import settings
 
 logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 TEST_FILE = os.path.join(
-    os.path.dirname(__file__), "..", "test-files",
+    os.path.dirname(__file__),
+    "..",
+    "test-files",
     "ZB-2YD-40-12-480（700截面）落地双摇臂抱杆使用说明书.pdf",
 )
 
@@ -109,6 +111,7 @@ class TestZB2YDPdf:
 
         # 获取 page_sizes（供跨页判断使用）
         import fitz
+
         pdf_doc = fitz.open(TEST_FILE)
         page_sizes = {pn: (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height) for pn in range(len(pdf_doc))}
         pdf_doc.close()
@@ -141,6 +144,7 @@ class TestZB2YDPdf:
         elements = parser.parse(TEST_FILE)
 
         import fitz
+
         pdf_doc = fitz.open(TEST_FILE)
         page_sizes = {pn: (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height) for pn in range(len(pdf_doc))}
         pdf_doc.close()
@@ -187,14 +191,18 @@ class TestZB2YDPdf:
         if char_counts:
             logger.info(
                 "字符数: min=%d, max=%d, avg=%.0f",
-                min(char_counts), max(char_counts), sum(char_counts) / len(char_counts),
+                min(char_counts),
+                max(char_counts),
+                sum(char_counts) / len(char_counts),
             )
 
         # 输出部分 chunk 内容预览
         for i, chunk in enumerate(chunks[:10]):
             logger.info(
                 "Chunk[%d] %s (%d字): %s",
-                i, chunk.metadata.chunk_id, chunk.metadata.char_count,
+                i,
+                chunk.metadata.chunk_id,
+                chunk.metadata.char_count,
                 chunk.full_text[:120].replace("\n", " "),
             )
 
@@ -212,6 +220,7 @@ class TestZB2YDPdf:
         elements = parser.parse(TEST_FILE)
 
         import fitz
+
         pdf_doc = fitz.open(TEST_FILE)
         total_pages = len(pdf_doc)
         page_sizes = {pn: (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height) for pn in range(len(pdf_doc))}
@@ -233,15 +242,17 @@ class TestZB2YDPdf:
             chunk_index = page_chunk_counters.get(page, 0)
             page_chunk_counters[page] = chunk_index + 1
             chunk = builder.build(
-                elements=para_group, doc_id=doc_id,
+                elements=para_group,
+                doc_id=doc_id,
                 source=os.path.basename(TEST_FILE),
-                page=page, chunk_index=chunk_index,
+                page=page,
+                chunk_index=chunk_index,
             )
             chunks.append(chunk)
 
         # 摘要
         print("\n" + "=" * 60)
-        print(f"  PDF 解析测试报告: ZB-2YD-40-12-480 抱杆使用说明书")
+        print("  PDF 解析测试报告: ZB-2YD-40-12-480 抱杆使用说明书")
         print("=" * 60)
         print(f"  文件: {os.path.basename(TEST_FILE)}")
         print(f"  总页数: {total_pages}")
@@ -262,7 +273,9 @@ class TestZB2YDPdf:
 
         char_counts = [c.metadata.char_count for c in chunks]
         if char_counts:
-            print(f"  字符数: min={min(char_counts)}, max={max(char_counts)}, avg={sum(char_counts) // len(char_counts)}")
+            print(
+                f"  字符数: min={min(char_counts)}, max={max(char_counts)}, avg={sum(char_counts) // len(char_counts)}"
+            )
 
         non_empty = [c for c in chunks if c.full_text.strip()]
         print(f"  非空 chunk: {len(non_empty)} / {len(chunks)}")
@@ -271,7 +284,9 @@ class TestZB2YDPdf:
         print("\n  --- Chunk 详情 ---")
         for i, chunk in enumerate(chunks):
             img_count = len(chunk.image_urls)
-            print(f"  [{i:3d}] {chunk.metadata.chunk_id:40s} type={chunk.metadata.chunk_type:6s} chars={chunk.metadata.char_count:5d} imgs={img_count}")
+            print(
+                f"  [{i:3d}] {chunk.metadata.chunk_id:40s} type={chunk.metadata.chunk_type:6s} chars={chunk.metadata.char_count:5d} imgs={img_count}"
+            )
             # 输出前 150 字
             preview = chunk.full_text[:150].replace("\n", "\\n")
             print(f"        {preview}")

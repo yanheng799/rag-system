@@ -10,7 +10,10 @@ router = APIRouter(prefix="/api/v1", tags=["问答"])
 
 
 async def resolve_filters(
-    pg_store, dataset_ids, doc_ids, doc_names,
+    pg_store,
+    dataset_ids,
+    doc_ids,
+    doc_names,
 ) -> dict | None:
     """将 dataset_ids / doc_ids / doc_names 解析为 Milvus 过滤条件"""
     collected_doc_ids: set[str] = set()
@@ -60,7 +63,7 @@ async def query(request: Request, body: QueryRequest):
             filters=filters,
         )
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from None
 
     return QueryResponse(
         answer=result.answer,

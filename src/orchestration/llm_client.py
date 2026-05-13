@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Generator, Optional
+from collections.abc import Generator
 
 import httpx
 
@@ -17,10 +17,7 @@ class LLMClient(ABC):
     """LLM 客户端抽象基类"""
 
     @abstractmethod
-    def complete(
-        self, messages: list[dict], stream: bool = False
-    ) -> str | Generator:
-        ...
+    def complete(self, messages: list[dict], stream: bool = False) -> str | Generator: ...
 
 
 class QwenClient(LLMClient):
@@ -28,9 +25,9 @@ class QwenClient(LLMClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
         timeout: int = 30,
         max_tokens: int = 2048,
         temperature: float = 0.1,
@@ -42,9 +39,7 @@ class QwenClient(LLMClient):
         self._max_tokens = max_tokens
         self._temperature = temperature
 
-    def complete(
-        self, messages: list[dict], stream: bool = False
-    ) -> str | Generator:
+    def complete(self, messages: list[dict], stream: bool = False) -> str | Generator:
         """
         调用 LLM 生成回答。
 
@@ -82,27 +77,29 @@ class QwenClient(LLMClient):
 
     def _stream_call(self, headers: dict, payload: dict) -> Generator:
         """流式调用，逐 token 返回"""
-        with httpx.Client(timeout=self._timeout) as client:
-            with client.stream(
+        with (
+            httpx.Client(timeout=self._timeout) as client,
+            client.stream(
                 "POST",
                 f"{self._base_url}/chat/completions",
                 headers=headers,
                 json=payload,
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
-                    import json
+            ) as response,
+        ):
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                import json
 
-                    try:
-                        chunk = json.loads(data_str)
-                        delta = chunk["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            yield content
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk["choices"][0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        yield content
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    continue

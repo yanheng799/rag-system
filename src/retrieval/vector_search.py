@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from src.ingestion.embedder import Embedder
 from src.models.chunks import RetrievedChunk
@@ -28,7 +27,7 @@ class VectorSearcher:
         self,
         question: str,
         top_k: int = 50,
-        filters: Optional[dict] = None,
+        filters: dict | None = None,
     ) -> list[RetrievedChunk]:
         """
         向量检索流程：

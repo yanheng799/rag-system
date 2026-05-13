@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
+from datetime import UTC
 
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
-from typing import Optional
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from src.api.schemas.documents import DocumentStatusResponse, UploadResponse
 from src.ingestion.pipeline import generate_doc_id
@@ -22,8 +23,8 @@ def _compute_content_hash(data: bytes) -> str:
 @router.post("", response_model=UploadResponse, summary="上传文档")
 async def upload_document(
     request: Request,
-    file: UploadFile = File(...),
-    dataset_id: Optional[str] = Form(None),
+    file: UploadFile = File(...),  # noqa: B008
+    dataset_id: str | None = Form(None),
 ):
     """上传文档，触发同步摄入流程。相同文件重复上传会覆盖旧数据。"""
     # 验证文件类型
@@ -101,7 +102,6 @@ async def upload_document(
         await pg_store.save_document(doc_record)
 
     # 保存临时文件
-    from src.config.settings import settings as s
 
     tmp_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
@@ -110,8 +110,9 @@ async def upload_document(
         f.write(file_data)
 
     # 执行摄入
-    from src.ingestion.pipeline import IngestionPipeline
     import logging
+
+    from src.ingestion.pipeline import IngestionPipeline
 
     logger = logging.getLogger(__name__)
 
@@ -123,9 +124,9 @@ async def upload_document(
         embedder=embedder,
     )
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    uploaded_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    uploaded_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
         await pipeline.ingest(doc_id, tmp_path, ext)
@@ -168,10 +169,8 @@ async def delete_document(request: Request, doc_id: str):
 
     # 删除 OSS 原始文件
     if doc.raw_file_url:
-        try:
+        with contextlib.suppress(Exception):
             oss_store.delete(doc.raw_file_url)
-        except Exception:
-            pass
 
     # 删除 PG 文档记录
     await pg_store.delete_document(doc_id)
@@ -179,9 +178,7 @@ async def delete_document(request: Request, doc_id: str):
     return {"message": "删除成功", "doc_id": doc_id}
 
 
-@router.get(
-    "/{doc_id}/status", response_model=DocumentStatusResponse, summary="查询文档状态"
-)
+@router.get("/{doc_id}/status", response_model=DocumentStatusResponse, summary="查询文档状态")
 async def get_document_status(request: Request, doc_id: str):
     """查询文档处理状态"""
     pg_store = request.app.state.pg_store

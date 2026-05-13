@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -35,9 +36,7 @@ def _detect_chunk_type(elements: list[dict]) -> str:
     return types.pop() if types else "text"
 
 
-async def _dissolve_orphan_groups(
-    pg_store, milvus_store, embedder, deleted_chunk_ids: list[str]
-) -> None:
+async def _dissolve_orphan_groups(pg_store, milvus_store, embedder, deleted_chunk_ids: list[str]) -> None:
     """合并/删除后，若被删除的 chunk 所在组已无其他成员，则清理 PG 残留"""
     chunks = await pg_store.get_chunks_by_ids(deleted_chunk_ids)
     affected_group_ids = list({c.group_id for c in chunks if c.group_id})
@@ -53,9 +52,7 @@ async def _dissolve_orphan_groups(
         await pg_store.clear_group_id([gid])
 
 
-async def _update_milvus_group_id(
-    milvus_store, embedder, chunk_ids: list[str], new_group_id: str
-) -> None:
+async def _update_milvus_group_id(milvus_store, embedder, chunk_ids: list[str], new_group_id: str) -> None:
     """更新 Milvus 中指定 chunk 的 group_id（delete + re-insert）"""
     import json
 
@@ -68,9 +65,19 @@ async def _update_milvus_group_id(
     results = collection.query(
         expr=expr,
         output_fields=[
-            "chunk_id", "doc_id", "full_text", "chunk_type",
-            "elements", "image_urls", "source", "page",
-            "chunk_index", "char_count", "created_at", "pages", "group_id",
+            "chunk_id",
+            "doc_id",
+            "full_text",
+            "chunk_type",
+            "elements",
+            "image_urls",
+            "source",
+            "page",
+            "chunk_index",
+            "char_count",
+            "created_at",
+            "pages",
+            "group_id",
         ],
     )
 
@@ -82,7 +89,7 @@ async def _update_milvus_group_id(
 
     milvus_store.delete_by_chunk_ids(chunk_ids)
 
-    for r, emb in zip(results, embeddings):
+    for r, emb in zip(results, embeddings, strict=False):
         # Milvus query 返回 JSON 字符串字段，需反序列化为 list 再传给 insert
         if isinstance(r.get("elements"), str):
             r["elements"] = json.loads(r["elements"])
@@ -98,10 +105,8 @@ async def _update_milvus_group_id(
 async def _cleanup_oss_images(oss_store, image_urls: list[str]) -> None:
     """清理 OSS 图片文件，忽略失败"""
     for url in image_urls:
-        try:
+        with contextlib.suppress(Exception):
             oss_store.delete(url)
-        except Exception:
-            pass
 
 
 # ---- 列出文档分块 ----
@@ -267,7 +272,7 @@ async def merge_chunks(request: Request, body: MergeRequest):
     merged_page = sorted_chunks[0].page
     merged_chunk_index = sorted_chunks[0].chunk_index
     new_chunk_id = f"{doc_id}_m_{uuid.uuid4().hex[:8]}"
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     doc = await pg_store.get_document(doc_id)
     source = doc.filename if doc else ""
@@ -303,18 +308,20 @@ async def merge_chunks(request: Request, body: MergeRequest):
 
     from src.models.documents import ChunkRecord
 
-    await pg_store.save_chunk(ChunkRecord(
-        chunk_id=new_chunk_id,
-        doc_id=doc_id,
-        chunk_type=chunk_type,
-        full_text=merged_full_text,
-        elements=merged_elements,
-        image_urls=merged_image_urls,
-        page=merged_page,
-        chunk_index=merged_chunk_index,
-        char_count=merged_char_count,
-        group_id="",
-    ))
+    await pg_store.save_chunk(
+        ChunkRecord(
+            chunk_id=new_chunk_id,
+            doc_id=doc_id,
+            chunk_type=chunk_type,
+            full_text=merged_full_text,
+            elements=merged_elements,
+            image_urls=merged_image_urls,
+            page=merged_page,
+            chunk_index=merged_chunk_index,
+            char_count=merged_char_count,
+            group_id="",
+        )
+    )
 
     return MergeResponse(
         merged_chunk_id=new_chunk_id,
@@ -349,14 +356,14 @@ async def split_chunk(request: Request, chunk_id: str, body: SplitRequest):
             detail=f"split_at={body.split_at} 超出元素范围 (共 {len(elements)} 个元素)",
         )
 
-    elems_a = elements[:body.split_at]
-    elems_b = elements[body.split_at:]
+    elems_a = elements[: body.split_at]
+    elems_b = elements[body.split_at :]
 
     full_text_a = "\n".join(e.get("content", "") for e in elems_a)
     full_text_b = "\n".join(e.get("content", "") for e in elems_b)
 
     doc_id = chunk.doc_id
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     chunk_a_id = f"{doc_id}_m_{uuid.uuid4().hex[:8]}"
     chunk_b_id = f"{doc_id}_m_{uuid.uuid4().hex[:8]}"
 
@@ -385,39 +392,50 @@ async def split_chunk(request: Request, chunk_id: str, body: SplitRequest):
     pg_records = []
 
     for cid, elems, ft, ccount, imgs, ctype, emb, cidx in [
-        (chunk_a_id, elems_a, full_text_a, char_count_a,
-         image_urls_a, chunk_type_a, embeddings[0], chunk.chunk_index),
-        (chunk_b_id, elems_b, full_text_b, char_count_b,
-         image_urls_b, chunk_type_b, embeddings[1], chunk.chunk_index + 1),
+        (chunk_a_id, elems_a, full_text_a, char_count_a, image_urls_a, chunk_type_a, embeddings[0], chunk.chunk_index),
+        (
+            chunk_b_id,
+            elems_b,
+            full_text_b,
+            char_count_b,
+            image_urls_b,
+            chunk_type_b,
+            embeddings[1],
+            chunk.chunk_index + 1,
+        ),
     ]:
-        milvus_records.append({
-            "embedding": emb,
-            "chunk_id": cid,
-            "doc_id": doc_id,
-            "full_text": ft,
-            "chunk_type": ctype,
-            "elements": elems,
-            "image_urls": imgs,
-            "source": source,
-            "page": chunk.page,
-            "chunk_index": cidx,
-            "char_count": ccount,
-            "created_at": now,
-            "pages": [chunk.page],
-            "group_id": shared_group_id,
-        })
-        pg_records.append(ChunkRecord(
-            chunk_id=cid,
-            doc_id=doc_id,
-            chunk_type=ctype,
-            full_text=ft,
-            elements=elems,
-            image_urls=imgs,
-            page=chunk.page,
-            chunk_index=cidx,
-            char_count=ccount,
-            group_id=shared_group_id,
-        ))
+        milvus_records.append(
+            {
+                "embedding": emb,
+                "chunk_id": cid,
+                "doc_id": doc_id,
+                "full_text": ft,
+                "chunk_type": ctype,
+                "elements": elems,
+                "image_urls": imgs,
+                "source": source,
+                "page": chunk.page,
+                "chunk_index": cidx,
+                "char_count": ccount,
+                "created_at": now,
+                "pages": [chunk.page],
+                "group_id": shared_group_id,
+            }
+        )
+        pg_records.append(
+            ChunkRecord(
+                chunk_id=cid,
+                doc_id=doc_id,
+                chunk_type=ctype,
+                full_text=ft,
+                elements=elems,
+                image_urls=imgs,
+                page=chunk.page,
+                chunk_index=cidx,
+                char_count=ccount,
+                group_id=shared_group_id,
+            )
+        )
 
     milvus_store.insert(milvus_records)
     await pg_store.save_chunks_batch(pg_records)

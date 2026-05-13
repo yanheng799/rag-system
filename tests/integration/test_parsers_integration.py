@@ -1,11 +1,10 @@
 """集成测试：使用真实文档验证解析器"""
 
 import os
-import pytest
 
+from src.ingestion.parsers.excel_parser import ExcelParser
 from src.ingestion.parsers.pdf_parser import PDFParser
 from src.ingestion.parsers.word_parser import WordParser
-from src.ingestion.parsers.excel_parser import ExcelParser
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
 

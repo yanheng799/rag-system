@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -14,16 +13,16 @@ class DocumentRecord:
     doc_id: str
     filename: str
     raw_file_url: str
-    content_hash: Optional[str] = None
-    dataset_id: Optional[str] = None
-    file_size: Optional[int] = None
-    file_type: Optional[str] = None  # pdf | docx | xlsx
+    content_hash: str | None = None
+    dataset_id: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None  # pdf | docx | xlsx
     status: str = "pending"  # pending | processing | done | failed
-    error_msg: Optional[str] = None
+    error_msg: str | None = None
     retry_count: int = 0
-    created_by: Optional[str] = None
-    uploaded_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_by: str | None = None
+    uploaded_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass
@@ -32,10 +31,10 @@ class DatasetRecord:
 
     dataset_id: str
     name: str
-    description: Optional[str] = None
-    created_by: Optional[str] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    description: str | None = None
+    created_by: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass
@@ -52,7 +51,7 @@ class ChunkRecord:
     chunk_index: int
     char_count: int
     group_id: str = ""
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
 
 @dataclass
@@ -61,12 +60,12 @@ class QueryLogRecord:
 
     log_id: str
     question: str
-    answer: Optional[str] = None
-    retrieved_chunks: Optional[list[dict]] = None
-    retrieval_ms: Optional[int] = None
-    llm_ms: Optional[int] = None
-    total_ms: Optional[int] = None
-    token_count: Optional[int] = None
+    answer: str | None = None
+    retrieved_chunks: list[dict] | None = None
+    retrieval_ms: int | None = None
+    llm_ms: int | None = None
+    total_ms: int | None = None
+    token_count: int | None = None
     cache_hit: bool = False
-    created_by: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_by: str | None = None
+    created_at: datetime | None = None

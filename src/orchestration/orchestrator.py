@@ -6,16 +6,14 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Generator, Optional
 
-from src.ingestion.embedder import Embedder
 from src.models.chunks import RetrievedChunk
 from src.models.documents import QueryLogRecord
 from src.orchestration.llm_client import LLMClient
 from src.orchestration.prompt_builder import PromptBuilder
-from src.retrieval.vector_search import VectorSearcher
 from src.retrieval.hybrid_search import HybridSearcher
-from src.storage.ports import DocumentStorePort, ObjectStorePort
+from src.retrieval.vector_search import VectorSearcher
+from src.storage.ports import DocumentStorePort
 from src.storage.signed_url_service import SignedUrlService
 
 logger = logging.getLogger(__name__)
@@ -51,8 +49,8 @@ class RAGOrchestrator:
         self,
         question: str,
         top_k: int = 5,
-        user_id: Optional[str] = None,
-        filters: Optional[dict] = None,
+        user_id: str | None = None,
+        filters: dict | None = None,
     ) -> QueryResponse:
         """
         完整问答流程：
@@ -87,10 +85,7 @@ class RAGOrchestrator:
             log_id=f"qlog_{uuid.uuid4().hex[:12]}",
             question=question,
             answer=answer,
-            retrieved_chunks=[
-                {"chunk_id": c.metadata.chunk_id, "score": c.score}
-                for c in chunks
-            ],
+            retrieved_chunks=[{"chunk_id": c.metadata.chunk_id, "score": c.score} for c in chunks],
             retrieval_ms=retrieval_ms,
             llm_ms=llm_ms,
             total_ms=total_ms,
@@ -100,7 +95,10 @@ class RAGOrchestrator:
 
         logger.info(
             "查询完成: retrieval=%dms, llm=%dms, total=%dms, chunks=%d",
-            retrieval_ms, llm_ms, total_ms, len(chunks),
+            retrieval_ms,
+            llm_ms,
+            total_ms,
+            len(chunks),
         )
 
         return QueryResponse(
@@ -113,8 +111,8 @@ class RAGOrchestrator:
         self,
         question: str,
         top_k: int = 5,
-        user_id: Optional[str] = None,
-        filters: Optional[dict] = None,
+        user_id: str | None = None,
+        filters: dict | None = None,
     ):
         """
         流式问答：
@@ -158,12 +156,12 @@ class RAGOrchestrator:
             metadata = chunk.metadata.to_dict()
             metadata["score"] = chunk.score
             metadata.pop("source", None)
-            metadata["filename"] = doc_filename_map.get(
-                chunk.metadata.doc_id, chunk.metadata.source
-            )
+            metadata["filename"] = doc_filename_map.get(chunk.metadata.doc_id, chunk.metadata.source)
 
-            sources.append({
-                "metadata": metadata,
-                "elements": elements,
-            })
+            sources.append(
+                {
+                    "metadata": metadata,
+                    "elements": elements,
+                }
+            )
         return sources

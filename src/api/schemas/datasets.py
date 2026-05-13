@@ -1,28 +1,27 @@
 """数据集接口 Pydantic 模型"""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 
 class DatasetCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=256)
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class DatasetUpdateRequest(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=256)
-    description: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=256)
+    description: str | None = None
 
 
 class DatasetResponse(BaseModel):
     dataset_id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     doc_count: int
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class DatasetListResponse(BaseModel):

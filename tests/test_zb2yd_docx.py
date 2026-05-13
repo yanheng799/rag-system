@@ -6,23 +6,27 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.ingestion.parsers.word_parser import WordParser
+from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
 from src.ingestion.chunkers.paragraph_grouper import (
     detect_chunk_type,
     group_elements_by_paragraph,
 )
-from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
+from src.ingestion.parsers.word_parser import WordParser
 from src.ingestion.table_processor.describer import TableDescriber
 
 logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
 
 TEST_FILE_640 = os.path.join(
-    os.path.dirname(__file__), "..", "test-files",
+    os.path.dirname(__file__),
+    "..",
+    "test-files",
     "ZB-2YD-40-16-640（800截面）落地双摇臂抱杆使用说明书.docx",
 )
 
 TEST_FILE_800 = os.path.join(
-    os.path.dirname(__file__), "..", "test-files",
+    os.path.dirname(__file__),
+    "..",
+    "test-files",
     "ZB-2YD-50-18-800（800截面）落地双摇臂抱杆使用说明书.docx",
 )
 
@@ -88,7 +92,7 @@ class TestZB2YDDocx:
             ct = detect_chunk_type(g)
             type_counts[ct] = type_counts.get(ct, 0) + 1
 
-        print(f"\n=== 段落分组 ===")
+        print("\n=== 段落分组 ===")
         print(f"  段落组数: {len(paragraphs)}")
         print(f"  类型分布: {dict(sorted(type_counts.items()))}")
         assert len(paragraphs) > 0
@@ -108,13 +112,15 @@ class TestZB2YDDocx:
             ci = pcc.get(p, 0)
             pcc[p] = ci + 1
             c = builder.build(
-                elements=pg, doc_id=doc_id,
+                elements=pg,
+                doc_id=doc_id,
                 source=os.path.basename(TEST_FILE_640),
-                page=p, chunk_index=ci,
+                page=p,
+                chunk_index=ci,
             )
             chunks.append(c)
 
-        print(f"\n=== Chunk 组装 ===")
+        print("\n=== Chunk 组装 ===")
         print(f"  总 chunk: {len(chunks)}")
 
         ctc = {}
@@ -123,7 +129,7 @@ class TestZB2YDDocx:
         print(f"  类型: {dict(sorted(ctc.items()))}")
 
         cc = [c.metadata.char_count for c in chunks]
-        print(f"  字符数: min={min(cc)}, max={max(cc)}, avg={sum(cc)//len(cc)}")
+        print(f"  字符数: min={min(cc)}, max={max(cc)}, avg={sum(cc) // len(cc)}")
 
         # 检查图片是否正确归入 chunk
         img_chunks = [c for c in chunks if any(e.type == "image" for e in c.elements)]
@@ -151,9 +157,11 @@ class TestZB2YDDocx:
             ci = pcc.get(p, 0)
             pcc[p] = ci + 1
             c = builder.build(
-                elements=pg, doc_id=doc_id,
+                elements=pg,
+                doc_id=doc_id,
                 source=os.path.basename(TEST_FILE_640),
-                page=p, chunk_index=ci,
+                page=p,
+                chunk_index=ci,
             )
             chunks.append(c)
 
@@ -178,7 +186,9 @@ class TestZB2YDDocx:
             has_img = any(e.type == "image" for e in chunk.elements)
             flag = " [IMG]" if has_img else ""
             preview = chunk.full_text[:100].replace("\n", " ")
-            print(f"  [{i:3d}] {chunk.metadata.chunk_id:30s} type={chunk.metadata.chunk_type:6s} chars={chunk.metadata.char_count:5d}{flag}")
+            print(
+                f"  [{i:3d}] {chunk.metadata.chunk_id:30s} type={chunk.metadata.chunk_type:6s} chars={chunk.metadata.char_count:5d}{flag}"
+            )
             print(f"        {preview}")
 
 
@@ -191,10 +201,7 @@ class TestZB2YD800Docx:
         elements = parser.parse(TEST_FILE_800)
         # 该文档有约 47 条 TOC 条目（toc 1/toc 2 样式），应全部被过滤
         # 过滤后不应出现 "1\t1" 之类的目录页码条目
-        toc_like = [
-            e for e in elements
-            if "\t" in e.content and any(c.isdigit() for c in e.content.split("\t")[-1])
-        ]
+        toc_like = [e for e in elements if "\t" in e.content and any(c.isdigit() for c in e.content.split("\t")[-1])]
         assert len(toc_like) == 0, f"应无 TOC 残留，但发现 {len(toc_like)} 条"
 
     def test_02_tables_preserved(self):
@@ -236,9 +243,11 @@ class TestZB2YD800Docx:
             ci = pcc.get(p, 0)
             pcc[p] = ci + 1
             c = builder.build(
-                elements=pg, doc_id=doc_id,
+                elements=pg,
+                doc_id=doc_id,
                 source=os.path.basename(TEST_FILE_800),
-                page=p, chunk_index=ci,
+                page=p,
+                chunk_index=ci,
             )
             chunks.append(c)
 
@@ -248,7 +257,7 @@ class TestZB2YD800Docx:
         parsed_tables = sum(1 for e in elements if e.is_table)
         parsed_images = sum(1 for e in elements if e.is_image)
 
-        print(f"\n=== 800 文档 Chunk 质量 ===")
+        print("\n=== 800 文档 Chunk 质量 ===")
         print(f"  Chunks: {len(chunks)}")
         print(f"  Tables: {chunk_tables}/{parsed_tables}  Images: {chunk_images}/{parsed_images}")
 
@@ -256,8 +265,5 @@ class TestZB2YD800Docx:
         assert chunk_images == parsed_images, f"图片丢失: {chunk_images}/{parsed_images}"
 
         # 含表格/图片的 chunk 应较多
-        rich_chunks = sum(
-            1 for c in chunks
-            if any(e.type in ("table", "image") for e in c.elements)
-        )
+        rich_chunks = sum(1 for c in chunks if any(e.type in ("table", "image") for e in c.elements))
         assert rich_chunks >= 30, f"含表格/图片的 chunk 过少: {rich_chunks}"

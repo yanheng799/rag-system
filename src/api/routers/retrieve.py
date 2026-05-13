@@ -77,9 +77,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
     for idx, chunk in enumerate(chunks, 1):
         meta_dict = chunk.metadata.to_dict()
         meta_dict.pop("source", None)
-        meta_dict["filename"] = doc_filename_map.get(
-            chunk.metadata.doc_id, chunk.metadata.source
-        )
+        meta_dict["filename"] = doc_filename_map.get(chunk.metadata.doc_id, chunk.metadata.source)
         metadata = ChunkMetadataResult(**meta_dict)
 
         image_urls = []

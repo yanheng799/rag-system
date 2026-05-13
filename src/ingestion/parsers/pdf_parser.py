@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import fitz  # pymupdf
 
@@ -30,7 +29,7 @@ class PDFParser(BaseParser):
         try:
             doc = fitz.open(file_path)
         except Exception as e:
-            raise ParseError(file_path, str(e))
+            raise ParseError(file_path, str(e)) from e
 
         hf_zones = detect_header_footer_zones(doc)
         toc_pages = detect_toc_pages(doc)
@@ -104,7 +103,6 @@ class PDFParser(BaseParser):
     ) -> list[ParsedElement]:
         """解析单页，提取文字和表格"""
         elements: list[ParsedElement] = []
-        page_width = page.rect.width
 
         # 先提取表格区域，用于过滤文字块中的表格部分
         tables = page.find_tables()
@@ -222,46 +220,36 @@ class PDFParser(BaseParser):
     def _is_in_table(self, bbox, table_bboxes: list) -> bool:
         """判断文字块是否在表格区域内"""
         x0, y0, x1, y1 = bbox
-        for tx0, ty0, tx1, ty1 in table_bboxes:
-            # 重叠检测
-            if x0 < tx1 and x1 > tx0 and y0 < ty1 and y1 > ty0:
-                overlap_x = min(x1, tx1) - max(x0, tx0)
-                overlap_y = min(y1, ty1) - max(y0, ty0)
-                block_area = (x1 - x0) * (y1 - y0)
-                if block_area > 0:
-                    overlap_ratio = (overlap_x * overlap_y) / block_area
-                    if overlap_ratio > 0.5:
-                        return True
-        return False
+        block_area = (x1 - x0) * (y1 - y0)
+        return any(
+            x0 < tx1
+            and x1 > tx0
+            and y0 < ty1
+            and y1 > ty0
+            and block_area > 0
+            and (min(x1, tx1) - max(x0, tx0)) * (min(y1, ty1) - max(y0, ty0)) / block_area > 0.5
+            for tx0, ty0, tx1, ty1 in table_bboxes
+        )
 
-    def _detect_text_type(
-        self, text: str, font_size: float, is_bold: bool
-    ) -> str:
+    def _detect_text_type(self, text: str, font_size: float, is_bold: bool) -> str:
         """根据样式和正则判断文字类型"""
         # 标题判断：样式（字号/加粗）OR 正则匹配
         if is_heading_combined(text, font_size, is_bold):
             return "title"
         # 列表项判断
-        if text.startswith(("•", "●", "◆", "○", "■")) or (
-            len(text) > 2 and text[0].isdigit() and text[1] in ".)"
-        ):
+        if text.startswith(("•", "●", "◆", "○", "■")) or (len(text) > 2 and text[0].isdigit() and text[1] in ".)"):
             return "list_item"
         return "text"
 
     def _is_page_number(self, text: str, bbox: tuple, page_height: float) -> bool:
         """判断文本是否为页码（页面边缘区域的独立短数字或 N / M 格式）"""
+        import re
+
         y0 = bbox[1]
         # 页码通常在顶部 8% 或底部 10%
-        if not (y0 < page_height * 0.08 or y0 > page_height * 0.90):
-            return False
-        # 纯数字页码
-        if text.isdigit() and len(text) <= 3:
-            return True
-        # "N / M" 格式页码（如 "6 / 21"）
-        import re
-        if re.match(r"^\d+\s*/\s*\d+$", text):
-            return True
-        return False
+        return (y0 < page_height * 0.08 or y0 > page_height * 0.90) and (
+            (text.isdigit() and len(text) <= 3) or bool(re.match(r"^\d+\s*/\s*\d+$", text))
+        )
 
     def _extract_images(
         self,

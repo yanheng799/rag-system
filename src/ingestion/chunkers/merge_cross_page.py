@@ -82,9 +82,7 @@ def merge_cross_page_tables(
             if idx_b in merged_away:
                 continue
 
-            if not _is_cross_page_continuation(
-                elem_a, elem_b, page_sizes, last_page_a, last_page_a_y1
-            ):
+            if not _is_cross_page_continuation(elem_a, elem_b, page_sizes, last_page_a, last_page_a_y1):
                 continue
 
             # 列数匹配
@@ -168,10 +166,7 @@ def _is_cross_page_continuation(
         return False
 
     # 表 B 接近页顶（y0 < 页面高度 × 0.15）
-    if elem_b.bbox[1] > height_b * 0.15:
-        return False
-
-    return True
+    return not elem_b.bbox[1] > height_b * 0.15
 
 
 def merge_cross_column_tables(
@@ -285,7 +280,4 @@ def _is_cross_column_pair(
     # y 坐标相近（y 差值 < 页面纵向尺寸 × 0.1）
     y_diff = abs(elem_a.bbox[1] - elem_b.bbox[1])
     tolerance = (page_height or page_width) * 0.1
-    if y_diff > tolerance:
-        return False
-
-    return True
+    return not y_diff > tolerance

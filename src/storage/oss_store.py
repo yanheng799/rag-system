@@ -5,10 +5,8 @@ from __future__ import annotations
 import io
 import logging
 from datetime import timedelta
-from typing import Optional
 
 from minio import Minio
-from minio.error import S3Error
 
 from src.config.settings import settings
 from src.storage.ports import ObjectStorePort
@@ -21,11 +19,11 @@ class OSSStore(ObjectStorePort):
 
     def __init__(
         self,
-        endpoint: Optional[str] = None,
-        access_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
-        bucket: Optional[str] = None,
-        secure: Optional[bool] = None,
+        endpoint: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        bucket: str | None = None,
+        secure: bool | None = None,
     ):
         self._endpoint = endpoint or settings.minio_endpoint
         self._access_key = access_key or settings.minio_access_key
@@ -59,9 +57,7 @@ class OSSStore(ObjectStorePort):
         logger.info("原始文档已上传: %s", object_name)
         return object_name
 
-    def upload_table_image(
-        self, doc_id: str, page: int, table_index: int, image: bytes
-    ) -> str:
+    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes) -> str:
         """上传表格截图至 /table-images/{doc_id}_p{page}_t{table_index}.png"""
         object_name = f"table-images/{doc_id}_p{page}_t{table_index}.png"
         self._client.put_object(
@@ -74,9 +70,7 @@ class OSSStore(ObjectStorePort):
         logger.info("表格截图已上传: %s", object_name)
         return object_name
 
-    def upload_doc_image(
-        self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png"
-    ) -> str:
+    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png") -> str:
         """上传文档图片至 /doc-images/{doc_id}_p{page}_img{image_index}.{ext}"""
         object_name = f"doc-images/{doc_id}_p{page}_img{image_index}.{ext}"
         content_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
@@ -92,9 +86,7 @@ class OSSStore(ObjectStorePort):
 
     def sign_url(self, path: str, expire_seconds: int = 3600) -> str:
         """生成预签名访问 URL"""
-        url = self._client.presigned_get_object(
-            self._bucket, path, expires=timedelta(seconds=expire_seconds)
-        )
+        url = self._client.presigned_get_object(self._bucket, path, expires=timedelta(seconds=expire_seconds))
         return url
 
     def download(self, path: str) -> bytes:

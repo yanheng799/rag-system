@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from src.ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_heading_combined, is_section_heading
+from src.ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_section_heading
 from src.ingestion.parsers.base import ParsedElement
 
 logger = logging.getLogger(__name__)
@@ -56,30 +56,23 @@ def is_new_paragraph_boundary(
     if elem.page != last.page:
         # 当前 group 以章节标题开头 → 放宽续接条件，标题内容应保持完整
         first = group[0]
-        if is_section_heading(first.content):
-            if (
-                page_sizes
-                and not elem.is_table
-                and elem.bbox[1] < page_sizes.get(elem.page, (0, 9999))[1] * 0.40
-            ):
-                return False
-        # 常规跨页续接
         if (
-            page_sizes
+            is_section_heading(first.content)
+            and page_sizes
             and not elem.is_table
-            and not last.is_table
-            and _is_page_continuation(last, elem, page_sizes)
+            and elem.bbox[1] < page_sizes.get(elem.page, (0, 9999))[1] * 0.40
         ):
             return False
-        return True
+        # 常规跨页续接
+        return not (
+            page_sizes and not elem.is_table and not last.is_table and _is_page_continuation(last, elem, page_sizes)
+        )
 
     # 垂直间距判断
     gap = _calculate_vertical_gap(last, elem)
     if gap > vertical_gap_threshold:
         # 前一个元素是标题 → 不拆分，标题吸收下方内容
-        if is_heading_element(last):
-            return False
-        return True
+        return not is_heading_element(last)
 
     return False
 
@@ -154,11 +147,7 @@ def _merge_heading_only_groups(
 
         # 孤立标题：总字符少，且只有标题+图片元素
         if total_chars < 40 and i + 1 < len(paragraphs):
-            has_content = any(
-                not is_section_heading(e.content) and not e.is_image
-                for e in group
-                if e.content.strip()
-            )
+            has_content = any(not is_section_heading(e.content) and not e.is_image for e in group if e.content.strip())
             if not has_content:
                 # 合并到下一个 group
                 paragraphs[i + 1] = group + paragraphs[i + 1]
@@ -268,10 +257,7 @@ def _is_page_continuation(
         return False
 
     # 当前元素在页顶（y0 < 页面高度 × 0.15）
-    if elem.bbox[1] > height_elem * 0.15:
-        return False
-
-    return True
+    return not elem.bbox[1] > height_elem * 0.15
 
 
 def _calculate_vertical_gap(elem_a: ParsedElement, elem_b: ParsedElement) -> float:

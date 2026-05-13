@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from src.storage.ports import ObjectStorePort
 
@@ -25,7 +24,7 @@ class ImageExtractor:
         self,
         pdf_path: str,
         doc_id: str,
-        table_bboxes: Optional[dict] = None,
+        table_bboxes: dict | None = None,
     ) -> list:
         """
         从 PDF 中提取内嵌图片。
@@ -149,7 +148,6 @@ class ImageExtractor:
     ) -> list:
         """从 Word 文档中提取内嵌图片。"""
         from docx import Document
-        from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
         from src.ingestion.parsers.base import ParsedElement
 
@@ -174,20 +172,14 @@ class ImageExtractor:
         img_index = 0
         for para_idx, para in enumerate(doc.paragraphs):
             # 检测段落中的 drawing 元素
-            drawings = para._element.findall(
-                ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing"
-            )
+            drawings = para._element.findall(".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing")
             if not drawings:
                 continue
 
             for drawing in drawings:
-                blips = drawing.findall(
-                    ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
-                )
+                blips = drawing.findall(".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip")
                 for blip in blips:
-                    embed_attr = blip.get(
-                        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-                    )
+                    embed_attr = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
                     if not embed_attr or embed_attr not in image_parts:
                         continue
 
@@ -226,9 +218,7 @@ class ImageExtractor:
         return elements
 
     @staticmethod
-    def _overlaps_table(
-        bbox: tuple, table_bboxes: list[tuple], threshold: float = 0.5
-    ) -> bool:
+    def _overlaps_table(bbox: tuple, table_bboxes: list[tuple], threshold: float = 0.5) -> bool:
         """检查图片 bbox 是否与表格 bbox 重叠超过阈值。"""
         for tb in table_bboxes:
             ix0 = max(bbox[0], tb[0])

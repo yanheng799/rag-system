@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from src.api.routers.chunks import _detect_chunk_type, EMBEDDING_MAX_CHARS
+from src.api.routers.chunks import EMBEDDING_MAX_CHARS, _detect_chunk_type
 
 
 class TestDetectChunkType:
@@ -111,7 +109,6 @@ class TestSplitValidation:
 
     def test_split_at_boundary_zero(self):
         """split_at=0 不合法"""
-        elements = [{"type": "text", "content": "a"}, {"type": "text", "content": "b"}]
         split_at = 0
         assert split_at < 1
 
@@ -168,10 +165,7 @@ class TestSplitGroupPolicy:
         """link_group=True 时两子 chunk 应共享 group_id"""
         link_group = True
         doc_id = "doc_test"
-        if link_group:
-            group_id = f"{doc_id}_g_abc12345"
-        else:
-            group_id = ""
+        group_id = f"{doc_id}_g_abc12345" if link_group else ""
         assert group_id != ""
         assert group_id.startswith(f"{doc_id}_g_")
 
@@ -187,6 +181,7 @@ class TestSplitGroupPolicy:
     def test_default_is_false(self):
         """Schema 默认值应为 False"""
         from src.api.schemas.chunks import SplitRequest
+
         req = SplitRequest(split_at=1)
         assert req.link_group is False
 

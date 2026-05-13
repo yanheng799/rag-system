@@ -1,13 +1,14 @@
 """集成测试：段落分组 + Chunk 组装 + 描述生成"""
 
 import os
+
 import pytest
 
-from src.ingestion.parsers.pdf_parser import PDFParser
-from src.ingestion.parsers.word_parser import WordParser
-from src.ingestion.parsers.registry import init_parsers, ParserRegistry
-from src.ingestion.chunkers.paragraph_grouper import group_elements_by_paragraph, detect_chunk_type
 from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
+from src.ingestion.chunkers.paragraph_grouper import detect_chunk_type, group_elements_by_paragraph
+from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.parsers.registry import ParserRegistry, init_parsers
+from src.ingestion.parsers.word_parser import WordParser
 from src.ingestion.table_processor.describer import TableDescriber
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
@@ -22,14 +23,12 @@ class TestParagraphGroupingIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         assert len(paragraphs) > 0
         # 每个段落至少 1 个元素
-        for group, gid in paragraphs:
+        for group, _gid in paragraphs:
             assert len(group) >= 1
 
     def test_group_word_elements(self):
         parser = WordParser()
-        elements = parser.parse(
-            os.path.join(TEST_FILES_DIR, "1.哈重项目管理实施规划-1.docx")
-        )
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "1.哈重项目管理实施规划-1.docx"))
         paragraphs = group_elements_by_paragraph(elements[:100])
         assert len(paragraphs) > 0
 
@@ -52,7 +51,7 @@ class TestChunkBuilderIntegration:
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
         # 取一个纯文字段落
-        for group, gid in paragraphs:
+        for group, _gid in paragraphs:
             if detect_chunk_type(group) == "text":
                 chunk = builder.build(
                     elements=group,
@@ -75,7 +74,7 @@ class TestChunkBuilderIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
-        for group, gid in paragraphs:
+        for group, _gid in paragraphs:
             if detect_chunk_type(group) == "mixed":
                 has_table_elem = any(e.is_table for e in group)
                 has_text_elem = any(not e.is_table and not e.is_image for e in group)
@@ -99,7 +98,7 @@ class TestChunkBuilderIntegration:
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
-        for group, gid in paragraphs:
+        for group, _gid in paragraphs:
             if detect_chunk_type(group) == "table":
                 chunk = builder.build(
                     elements=group,
@@ -116,9 +115,7 @@ class TestChunkBuilderIntegration:
         from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
-        elements = parser.parse(
-            os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx")
-        )
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx"))
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
@@ -166,9 +163,7 @@ class TestDescriberIntegration:
         from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
-        elements = parser.parse(
-            os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx")
-        )
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx"))
         assert len(elements) > 0
 
         describer = TableDescriber()

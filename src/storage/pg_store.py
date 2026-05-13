@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config.settings import settings
 from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord
-from src.storage.ports import DocumentStorePort
 from src.storage.pg_models import ChunkORM, DatasetORM, DocumentORM, QueryLogORM
+from src.storage.ports import DocumentStorePort
 
 
 class PgStore(DocumentStorePort):
     """PostgreSQL 文档存储实现"""
 
-    def __init__(self, dsn: Optional[str] = None):
+    def __init__(self, dsn: str | None = None):
         dsn = dsn or settings.postgres_dsn
         self._engine = create_async_engine(dsn, echo=False, pool_size=10, max_overflow=20)
-        self._session_factory = async_sessionmaker(
-            self._engine, class_=AsyncSession, expire_on_commit=False
-        )
+        self._session_factory = async_sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
     async def get_session(self) -> AsyncSession:
         return self._session_factory()
@@ -42,23 +38,15 @@ class PgStore(DocumentStorePort):
             session.add(orm)
             await session.commit()
 
-    async def update_status(
-        self, doc_id: str, status: str, error_msg: Optional[str] = None
-    ) -> None:
+    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None) -> None:
         async with self._session_factory() as session:
-            stmt = (
-                update(DocumentORM)
-                .where(DocumentORM.doc_id == doc_id)
-                .values(status=status, error_msg=error_msg)
-            )
+            stmt = update(DocumentORM).where(DocumentORM.doc_id == doc_id).values(status=status, error_msg=error_msg)
             await session.execute(stmt)
             await session.commit()
 
-    async def get_document(self, doc_id: str) -> Optional[DocumentRecord]:
+    async def get_document(self, doc_id: str) -> DocumentRecord | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(DocumentORM).where(DocumentORM.doc_id == doc_id)
-            )
+            result = await session.execute(select(DocumentORM).where(DocumentORM.doc_id == doc_id))
             orm = result.scalar_one_or_none()
             if orm is None:
                 return None
@@ -78,11 +66,9 @@ class PgStore(DocumentStorePort):
                 updated_at=orm.updated_at,
             )
 
-    async def get_document_by_hash(self, content_hash: str) -> Optional[DocumentRecord]:
+    async def get_document_by_hash(self, content_hash: str) -> DocumentRecord | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(DocumentORM).where(DocumentORM.content_hash == content_hash)
-            )
+            result = await session.execute(select(DocumentORM).where(DocumentORM.content_hash == content_hash))
             orm = result.scalar_one_or_none()
             if orm is None:
                 return None
@@ -102,9 +88,7 @@ class PgStore(DocumentStorePort):
                 updated_at=orm.updated_at,
             )
 
-    async def update_document_for_reingest(
-        self, doc_id: str, filename: str, file_size: int, raw_file_url: str
-    ) -> None:
+    async def update_document_for_reingest(self, doc_id: str, filename: str, file_size: int, raw_file_url: str) -> None:
         """重置文档记录以重新摄入：更新文件信息，重置状态"""
         async with self._session_factory() as session:
             stmt = (
@@ -121,22 +105,15 @@ class PgStore(DocumentStorePort):
             await session.execute(stmt)
             await session.commit()
 
-    async def list_documents(
-        self, page: int = 1, size: int = 20
-    ) -> tuple[list[DocumentRecord], int]:
+    async def list_documents(self, page: int = 1, size: int = 20) -> tuple[list[DocumentRecord], int]:
         async with self._session_factory() as session:
             # 总数
-            count_result = await session.execute(
-                select(func.count()).select_from(DocumentORM)
-            )
+            count_result = await session.execute(select(func.count()).select_from(DocumentORM))
             total = count_result.scalar() or 0
 
             # 分页查询
             result = await session.execute(
-                select(DocumentORM)
-                .order_by(DocumentORM.uploaded_at.desc())
-                .offset((page - 1) * size)
-                .limit(size)
+                select(DocumentORM).order_by(DocumentORM.uploaded_at.desc()).offset((page - 1) * size).limit(size)
             )
             rows = result.scalars().all()
             records = [
@@ -166,7 +143,7 @@ class PgStore(DocumentStorePort):
                 doc_id=chunk.doc_id,
                 chunk_type=chunk.chunk_type,
                 full_text=chunk.full_text,
-                elements=[e if isinstance(e, dict) else e for e in chunk.elements],
+                elements=[e for e in chunk.elements],
                 image_urls=chunk.image_urls,
                 page=chunk.page,
                 chunk_index=chunk.chunk_index,
@@ -184,7 +161,7 @@ class PgStore(DocumentStorePort):
                     doc_id=c.doc_id,
                     chunk_type=c.chunk_type,
                     full_text=c.full_text,
-                    elements=[e if isinstance(e, dict) else e for e in c.elements],
+                    elements=[e for e in c.elements],
                     image_urls=c.image_urls,
                     page=c.page,
                     chunk_index=c.chunk_index,
@@ -219,11 +196,9 @@ class PgStore(DocumentStorePort):
             created_at=orm.created_at,
         )
 
-    async def get_chunk(self, chunk_id: str) -> Optional[ChunkRecord]:
+    async def get_chunk(self, chunk_id: str) -> ChunkRecord | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(ChunkORM).where(ChunkORM.chunk_id == chunk_id)
-            )
+            result = await session.execute(select(ChunkORM).where(ChunkORM.chunk_id == chunk_id))
             orm = result.scalar_one_or_none()
             if orm is None:
                 return None
@@ -231,20 +206,14 @@ class PgStore(DocumentStorePort):
 
     async def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[ChunkRecord]:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids))
-            )
+            result = await session.execute(select(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids)))
             rows = result.scalars().all()
             return [self._chunk_orm_to_record(r) for r in rows]
 
-    async def list_chunks_by_doc(
-        self, doc_id: str, page: int = 1, size: int = 20
-    ) -> tuple[list[ChunkRecord], int]:
+    async def list_chunks_by_doc(self, doc_id: str, page: int = 1, size: int = 20) -> tuple[list[ChunkRecord], int]:
         async with self._session_factory() as session:
             count_result = await session.execute(
-                select(func.count()).select_from(ChunkORM).where(
-                    ChunkORM.doc_id == doc_id
-                )
+                select(func.count()).select_from(ChunkORM).where(ChunkORM.doc_id == doc_id)
             )
             total = count_result.scalar() or 0
 
@@ -285,33 +254,21 @@ class PgStore(DocumentStorePort):
 
     async def clear_group_id(self, group_ids: list[str]) -> int:
         async with self._session_factory() as session:
-            stmt = (
-                update(ChunkORM)
-                .where(ChunkORM.group_id.in_(group_ids))
-                .values(group_id="")
-            )
+            stmt = update(ChunkORM).where(ChunkORM.group_id.in_(group_ids)).values(group_id="")
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount
 
     async def update_chunks_group_id(self, chunk_ids: list[str], group_id: str) -> int:
         async with self._session_factory() as session:
-            stmt = (
-                update(ChunkORM)
-                .where(ChunkORM.chunk_id.in_(chunk_ids))
-                .values(group_id=group_id)
-            )
+            stmt = update(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids)).values(group_id=group_id)
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount
 
     async def clear_group_ids_by_ids(self, chunk_ids: list[str]) -> int:
         async with self._session_factory() as session:
-            stmt = (
-                update(ChunkORM)
-                .where(ChunkORM.chunk_id.in_(chunk_ids))
-                .values(group_id="")
-            )
+            stmt = update(ChunkORM).where(ChunkORM.chunk_id.in_(chunk_ids)).values(group_id="")
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount
@@ -333,8 +290,8 @@ class PgStore(DocumentStorePort):
         self,
         dataset_id: str,
         name: str,
-        description: Optional[str] = None,
-        created_by: Optional[str] = None,
+        description: str | None = None,
+        created_by: str | None = None,
     ) -> DatasetRecord:
         async with self._session_factory() as session:
             orm = DatasetORM(
@@ -348,30 +305,21 @@ class PgStore(DocumentStorePort):
             await session.refresh(orm)
             return self._dataset_orm_to_record(orm)
 
-    async def get_dataset(self, dataset_id: str) -> Optional[DatasetRecord]:
+    async def get_dataset(self, dataset_id: str) -> DatasetRecord | None:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(DatasetORM).where(DatasetORM.dataset_id == dataset_id)
-            )
+            result = await session.execute(select(DatasetORM).where(DatasetORM.dataset_id == dataset_id))
             orm = result.scalar_one_or_none()
             if orm is None:
                 return None
             return self._dataset_orm_to_record(orm)
 
-    async def list_datasets(
-        self, page: int = 1, size: int = 20
-    ) -> tuple[list[DatasetRecord], int]:
+    async def list_datasets(self, page: int = 1, size: int = 20) -> tuple[list[DatasetRecord], int]:
         async with self._session_factory() as session:
-            count_result = await session.execute(
-                select(func.count()).select_from(DatasetORM)
-            )
+            count_result = await session.execute(select(func.count()).select_from(DatasetORM))
             total = count_result.scalar() or 0
 
             result = await session.execute(
-                select(DatasetORM)
-                .order_by(DatasetORM.created_at.desc())
-                .offset((page - 1) * size)
-                .limit(size)
+                select(DatasetORM).order_by(DatasetORM.created_at.desc()).offset((page - 1) * size).limit(size)
             )
             rows = result.scalars().all()
             records = [self._dataset_orm_to_record(r) for r in rows]
@@ -380,9 +328,9 @@ class PgStore(DocumentStorePort):
     async def update_dataset(
         self,
         dataset_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-    ) -> Optional[DatasetRecord]:
+        name: str | None = None,
+        description: str | None = None,
+    ) -> DatasetRecord | None:
         async with self._session_factory() as session:
             values = {}
             if name is not None:
@@ -392,11 +340,7 @@ class PgStore(DocumentStorePort):
             if not values:
                 return await self.get_dataset(dataset_id)
 
-            stmt = (
-                update(DatasetORM)
-                .where(DatasetORM.dataset_id == dataset_id)
-                .values(**values)
-            )
+            stmt = update(DatasetORM).where(DatasetORM.dataset_id == dataset_id).values(**values)
             await session.execute(stmt)
             await session.commit()
 
@@ -419,27 +363,17 @@ class PgStore(DocumentStorePort):
     async def count_docs_by_dataset(self, dataset_id: str) -> int:
         async with self._session_factory() as session:
             result = await session.execute(
-                select(func.count()).select_from(DocumentORM).where(
-                    DocumentORM.dataset_id == dataset_id
-                )
+                select(func.count()).select_from(DocumentORM).where(DocumentORM.dataset_id == dataset_id)
             )
             return result.scalar() or 0
 
     async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(DocumentORM.doc_id).where(
-                    DocumentORM.dataset_id.in_(dataset_ids)
-                )
-            )
+            result = await session.execute(select(DocumentORM.doc_id).where(DocumentORM.dataset_id.in_(dataset_ids)))
             return [row[0] for row in result.all()]
 
     async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]:
         async with self._session_factory() as session:
-            conditions = [
-                DocumentORM.filename.ilike(f"%{name}%") for name in filenames
-            ]
-            result = await session.execute(
-                select(DocumentORM.doc_id).where(or_(*conditions))
-            )
+            conditions = [DocumentORM.filename.ilike(f"%{name}%") for name in filenames]
+            result = await session.execute(select(DocumentORM.doc_id).where(or_(*conditions)))
             return [row[0] for row in result.all()]

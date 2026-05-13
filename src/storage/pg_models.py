@@ -28,20 +28,14 @@ class DatasetORM(Base):
     name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    documents: Mapped[list["DocumentORM"]] = relationship(
-        back_populates="dataset", passive_deletes=True
-    )
+    documents: Mapped[list["DocumentORM"]] = relationship(back_populates="dataset", passive_deletes=True)
 
-    __table_args__ = (
-        Index("idx_datasets_created_at", created_at.desc()),
-    )
+    __table_args__ = (Index("idx_datasets_created_at", created_at.desc()),)
 
 
 class DocumentORM(Base):
@@ -60,9 +54,7 @@ class DocumentORM(Base):
     error_msg: Mapped[str | None] = mapped_column(Text)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by: Mapped[str | None] = mapped_column(String(64))
-    uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
@@ -93,9 +85,7 @@ class ChunkORM(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     group_id: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_chunks_doc_id", "doc_id"),
@@ -118,9 +108,7 @@ class QueryLogORM(Base):
     token_count: Mapped[int | None] = mapped_column(Integer)
     cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     __table_args__ = (
         Index("idx_query_logs_created_at", created_at.desc()),

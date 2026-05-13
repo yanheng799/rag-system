@@ -1,7 +1,5 @@
 """表格语义描述生成模块测试"""
 
-import pytest
-
 from src.ingestion.parsers.base import ParsedElement
 from src.ingestion.table_processor.describer import TableDescriber
 

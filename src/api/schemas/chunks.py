@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,7 +19,7 @@ class ChunkListItem(BaseModel):
     full_text: str = Field(description="截断预览，最多 200 字符")
     element_count: int
     group_id: str = ""
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
 
 class ChunkListResponse(BaseModel):
@@ -45,7 +44,7 @@ class ChunkDetail(BaseModel):
     elements: list[dict]
     image_urls: list[str] = []
     group_id: str = ""
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
 
 class MergeRequest(BaseModel):

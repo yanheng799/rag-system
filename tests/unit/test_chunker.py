@@ -1,12 +1,25 @@
 """段落边界识别模块测试"""
 
-import pytest
-
+from src.ingestion.chunkers.heading_patterns import (
+    is_heading_by_pattern,
+    is_heading_combined,
+)
 from src.ingestion.chunkers.layout_detector import (
     detect_header_footer_zones,
     detect_page_layout,
+    detect_toc_pages,
     is_in_header_footer,
     reorder_elements_for_layout,
+)
+from src.ingestion.chunkers.merge_cross_page import (
+    merge_cross_column_tables,
+    merge_cross_page_tables,
+)
+from src.ingestion.chunkers.paragraph_grouper import (
+    detect_chunk_type,
+    group_elements_by_paragraph,
+    is_heading_element,
+    is_new_paragraph_boundary,
 )
 from src.ingestion.parsers.base import ParsedElement
 
@@ -120,9 +133,7 @@ class TestTableMarkdownFormat:
         from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
-        elements = parser.parse(
-            "test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf"
-        )
+        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
         tables = [e for e in elements if e.is_table]
         assert len(tables) > 0
         for t in tables:
@@ -134,9 +145,7 @@ class TestTableMarkdownFormat:
         from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
-        elements = parser.parse(
-            "test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf"
-        )
+        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
         tables = [e for e in elements if e.is_table]
         # 检查简单表格（前几个表格是单行表头，格式完整）
         for t in tables[:5]:
@@ -170,19 +179,6 @@ class TestTableMarkdownFormat:
         describer = TableDescriber()
         elem = ParsedElement(elem_type="table", content="", page=0)
         assert describer.describe(elem) == ""
-
-
-from src.ingestion.chunkers.heading_patterns import (
-    is_heading_by_pattern,
-    is_heading_combined,
-)
-from src.ingestion.chunkers.paragraph_grouper import (
-    detect_chunk_type,
-    group_elements_by_paragraph,
-    is_heading_element,
-    is_new_paragraph_boundary,
-)
-from src.ingestion.parsers.base import ParsedElement
 
 
 class TestHeadingPatterns:
@@ -366,7 +362,7 @@ class TestMaxChunkSize:
         result = group_elements_by_paragraph(elements, max_chunk_size=1024)
         # 总共 1500 字符，应该被拆分为多个组
         assert len(result) > 1
-        for group, gid in result:
+        for group, _gid in result:
             size = sum(len(e.content) for e in group)
             assert size <= 1536  # 允许单个超限元素独占一组
 
@@ -397,7 +393,7 @@ class TestMaxChunkSize:
         ]
         result = group_elements_by_paragraph(elements, max_chunk_size=1024)
         # 不应出现只有标题的孤立组
-        for group, gid in result:
+        for group, _gid in result:
             if any(e.is_title for e in group):
                 assert len(group) > 1
 
@@ -419,12 +415,6 @@ class TestDetectChunkType:
             ParsedElement(elem_type="table", content="表格", page=0),
         ]
         assert detect_chunk_type(elements) == "mixed"
-
-
-from src.ingestion.chunkers.merge_cross_page import (
-    merge_cross_column_tables,
-    merge_cross_page_tables,
-)
 
 
 class TestFullWidthTable:
@@ -504,7 +494,9 @@ class TestMergeCrossPage:
         result = merge_cross_page_tables([table_a, table_b], page_sizes)
         assert len(result) == 1
         # 合并后应包含 4 行数据（不含表头）
-        data_lines = [l for l in result[0].content.split("\n") if l.strip().startswith("|") and "---" not in l]
+        data_lines = [
+            line for line in result[0].content.split("\n") if line.strip().startswith("|") and "---" not in line
+        ]
         # 1 表头行 + 4 数据行 = 5 行
         assert len(data_lines) == 5
 
@@ -645,9 +637,6 @@ class TestCrossPageParagraph:
         assert len(result) == 2
 
 
-from src.ingestion.chunkers.layout_detector import detect_toc_pages
-
-
 class TestTocDetection:
     """目录页检测测试"""
 
@@ -695,8 +684,6 @@ class TestTocFiltered:
         elements = parser.parse("test-files/10.设计交底文件.pdf")
         # 不应包含连续点号引导线的内容（目录条目特征：50+ 连续点号）
         import re
-        toc_lines = [
-            e for e in elements
-            if not e.is_table and re.search(r'\.{50,}', e.content)
-        ]
+
+        toc_lines = [e for e in elements if not e.is_table and re.search(r"\.{50,}", e.content)]
         assert len(toc_lines) == 0, f"Found TOC content: {[e.content[:60] for e in toc_lines[:3]]}"

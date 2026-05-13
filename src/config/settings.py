@@ -1,7 +1,7 @@
 """统一配置管理，基于 pydantic-settings，支持 .env 文件和环境变量覆盖"""
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):

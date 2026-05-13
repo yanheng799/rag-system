@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import uuid
-from typing import Optional
 
 from src.config.settings import settings
 from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
@@ -16,7 +14,7 @@ from src.ingestion.parsers.registry import ParserRegistry
 from src.ingestion.table_processor.describer import TableDescriber
 from src.ingestion.table_processor.screenshot import TableScreenshot
 from src.models.chunks import MixedChunk
-from src.models.documents import ChunkRecord, DocumentRecord
+from src.models.documents import ChunkRecord
 from src.storage.ports import DocumentStorePort, ObjectStorePort, VectorStorePort
 
 logger = logging.getLogger(__name__)
@@ -69,7 +67,7 @@ class IngestionPipeline:
             filename = os.path.basename(file_path)
             with open(file_path, "rb") as f:
                 file_data = f.read()
-            raw_file_url = self._oss.upload_raw_doc(doc_id, filename, file_data)
+            _raw_file_url = self._oss.upload_raw_doc(doc_id, filename, file_data)
 
             # 3. 解析文档
             parser = ParserRegistry.get(file_type)
@@ -116,18 +114,23 @@ class IngestionPipeline:
                 # 上传图片元素至 MinIO（parser 只提取了 bytes，上传在此完成）
                 img_counter = page_img_counters.get(page, 0)
                 for elem in para_group:
-                    if elem.is_image and elem.raw and isinstance(elem.raw, dict):
-                        if "oss_path" not in elem.raw and "image_bytes" in elem.raw:
-                            ext = elem.raw.get("ext", "png")
-                            oss_path = self._oss.upload_doc_image(
-                                doc_id=doc_id,
-                                page=page,
-                                image_index=img_counter,
-                                image=elem.raw["image_bytes"],
-                                ext=ext,
-                            )
-                            elem.raw["oss_path"] = oss_path
-                            img_counter += 1
+                    if (
+                        elem.is_image
+                        and elem.raw
+                        and isinstance(elem.raw, dict)
+                        and "oss_path" not in elem.raw
+                        and "image_bytes" in elem.raw
+                    ):
+                        ext = elem.raw.get("ext", "png")
+                        oss_path = self._oss.upload_doc_image(
+                            doc_id=doc_id,
+                            page=page,
+                            image_index=img_counter,
+                            image=elem.raw["image_bytes"],
+                            ext=ext,
+                        )
+                        elem.raw["oss_path"] = oss_path
+                        img_counter += 1
                 page_img_counters[page] = img_counter
 
                 pdf_path = file_path if file_type == "pdf" else None
@@ -155,23 +158,25 @@ class IngestionPipeline:
 
             # 7. 写入 Milvus
             milvus_records = []
-            for chunk, embedding in zip(non_empty_chunks, embeddings):
-                milvus_records.append({
-                    "embedding": embedding,
-                    "chunk_id": chunk.metadata.chunk_id,
-                    "doc_id": chunk.metadata.doc_id,
-                    "full_text": chunk.full_text,
-                    "chunk_type": chunk.metadata.chunk_type,
-                    "elements": [e.to_dict() for e in chunk.elements],
-                    "image_urls": chunk.image_urls,
-                    "source": chunk.metadata.source,
-                    "page": chunk.metadata.page,
-                    "chunk_index": chunk.metadata.chunk_index,
-                    "char_count": chunk.metadata.char_count,
-                    "created_at": chunk.metadata.created_at,
-                    "pages": chunk.metadata.pages,
-                    "group_id": chunk.metadata.group_id,
-                })
+            for chunk, embedding in zip(non_empty_chunks, embeddings, strict=False):
+                milvus_records.append(
+                    {
+                        "embedding": embedding,
+                        "chunk_id": chunk.metadata.chunk_id,
+                        "doc_id": chunk.metadata.doc_id,
+                        "full_text": chunk.full_text,
+                        "chunk_type": chunk.metadata.chunk_type,
+                        "elements": [e.to_dict() for e in chunk.elements],
+                        "image_urls": chunk.image_urls,
+                        "source": chunk.metadata.source,
+                        "page": chunk.metadata.page,
+                        "chunk_index": chunk.metadata.chunk_index,
+                        "char_count": chunk.metadata.char_count,
+                        "created_at": chunk.metadata.created_at,
+                        "pages": chunk.metadata.pages,
+                        "group_id": chunk.metadata.group_id,
+                    }
+                )
             self._vector_store.insert(milvus_records)
             logger.info("Milvus 写入完成: %d 条向量记录", len(milvus_records))
 

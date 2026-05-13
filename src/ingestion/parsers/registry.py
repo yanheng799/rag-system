@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import ClassVar
 
 from src.ingestion.parsers.base import (
     BaseParser,
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ParserRegistry:
     """根据文件扩展名自动选择对应 Parser"""
 
-    _parsers: dict[str, BaseParser] = {}
+    _parsers: ClassVar[dict[str, BaseParser]] = {}
 
     @classmethod
     def register(cls, parser: BaseParser) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from docx import Document
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 from src.ingestion.parsers.base import BaseParser, ParsedElement, ParseError
 
@@ -22,7 +21,7 @@ class WordParser(BaseParser):
         try:
             doc = Document(file_path)
         except Exception as e:
-            raise ParseError(file_path, str(e))
+            raise ParseError(file_path, str(e)) from e
 
         elements: list[ParsedElement] = []
         position = 0  # 文档中的顺序位置
@@ -62,13 +61,9 @@ class WordParser(BaseParser):
                     # 检测段落中的图片（按 rId 去重，同一图片只提取一次）
                     if self._do_extract_images:
                         seen_rids: set[str] = set()
-                        blips = element.findall(
-                            ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
-                        )
+                        blips = element.findall(".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip")
                         for blip in blips:
-                            rid = blip.get(
-                                "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-                            )
+                            rid = blip.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed")
                             if rid and rid not in seen_rids and rid in image_rels:
                                 seen_rids.add(rid)
                                 img_info = image_rels[rid]

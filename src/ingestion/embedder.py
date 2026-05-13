@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import httpx
 
@@ -19,9 +18,9 @@ class Embedder:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
     ):
         self._api_key = api_key or settings.dashscope_api_key
         self._model = model or settings.embedding_model
@@ -40,7 +39,7 @@ class Embedder:
         batch_size = settings.embedding_batch_size
 
         for i in range(0, len(texts), batch_size):
-            batch = [t[:self.MAX_INPUT_LENGTH] for t in texts[i : i + batch_size]]
+            batch = [t[: self.MAX_INPUT_LENGTH] for t in texts[i : i + batch_size]]
             response = self._call_api(batch)
             for item in response.get("data", []):
                 all_embeddings.append(item["embedding"])

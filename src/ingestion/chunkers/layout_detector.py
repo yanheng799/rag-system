@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 # 页眉页脚检测
 # ---------------------------------------------------------------------------
 
+
 def _normalize_text(text: str) -> str:
     """将文本中数字和多余空白去除，用于跨页比较。"""
     text = re.sub(r"\d+", "", text)
@@ -27,10 +28,7 @@ def _normalize_text(text: str) -> str:
 def _bbox_in_table(bbox: tuple, table_bboxes: list[tuple]) -> bool:
     """判断 bbox 是否落在任一表格区域内。"""
     x0, y0, x1, y1 = bbox
-    for tx0, ty0, tx1, ty1 in table_bboxes:
-        if x0 < tx1 and x1 > tx0 and y0 < ty1 and y1 > ty0:
-            return True
-    return False
+    return any(x0 < tx1 and x1 > tx0 and y0 < ty1 and y1 > ty0 for tx0, ty0, tx1, ty1 in table_bboxes)
 
 
 def detect_header_footer_zones(
@@ -96,12 +94,12 @@ def detect_header_footer_zones(
 
     # 识别重复行：在每个 y 桶内，按归一化文本二次分组
     zones: list[tuple[float, float]] = []
-    for avg_y, items in y_buckets:
+    for _avg_y, items in y_buckets:
         by_norm: dict[str, list[tuple[int, float, str, str]]] = defaultdict(list)
         for it in items:
             by_norm[it[2]].append(it)
 
-        for norm, norm_items in by_norm.items():
+        for _norm, norm_items in by_norm.items():
             unique_pages = {it[0] for it in norm_items}
             if len(unique_pages) < min_repeat:
                 continue
@@ -123,15 +121,13 @@ def is_in_header_footer(
 ) -> bool:
     """判断元素是否位于页眉 / 页脚区间内。"""
     y0 = bbox[1]
-    for z_min, z_max in zones:
-        if z_min <= y0 <= z_max:
-            return True
-    return False
+    return any(z_min <= y0 <= z_max for z_min, z_max in zones)
 
 
 # ---------------------------------------------------------------------------
 # 排版格式检测
 # ---------------------------------------------------------------------------
+
 
 def detect_page_layout(page: fitz.Page) -> str:
     """检测单页排版格式。
@@ -161,26 +157,13 @@ def detect_page_layout(page: fitz.Page) -> str:
     right_count = len(right_words)
 
     # 计算两侧垂直跨度
-    left_vext = (
-        max(w[3] for w in left_words) - min(w[1] for w in left_words)
-        if left_words
-        else 0
-    )
-    right_vext = (
-        max(w[3] for w in right_words) - min(w[1] for w in right_words)
-        if right_words
-        else 0
-    )
+    left_vext = max(w[3] for w in left_words) - min(w[1] for w in left_words) if left_words else 0
+    right_vext = max(w[3] for w in right_words) - min(w[1] for w in right_words) if right_words else 0
 
     # 两侧都需有足够词数和垂直跨度
     min_words = max(len(words) * 0.1, 10)
     min_vext = page_height * 0.3
-    if (
-        left_count < min_words
-        or right_count < min_words
-        or left_vext < min_vext
-        or right_vext < min_vext
-    ):
+    if left_count < min_words or right_count < min_words or left_vext < min_vext or right_vext < min_vext:
         return "single"
 
     # 在中线附近寻找连续低密度间隔 (直方图验证)
@@ -218,6 +201,7 @@ def detect_page_layout(page: fitz.Page) -> str:
 # ---------------------------------------------------------------------------
 # 元素重排
 # ---------------------------------------------------------------------------
+
 
 def reorder_elements_for_layout(
     elements: list[ParsedElement],
@@ -261,13 +245,11 @@ def _interleave_full_width(
     full_width.sort(key=lambda e: (e.bbox[1], e.bbox[0]))
 
     result: list[ParsedElement] = []
-    fw_idx = 0
 
     for fw_elem in full_width:
         fw_y = fw_elem.bbox[1]
 
         # 取出左列中 y < 全宽元素 y 的部分
-        remaining_left = []
         while left and left[0].bbox[1] < fw_y:
             result.append(left.pop(0))
 
@@ -362,10 +344,7 @@ def _is_toc_page(page: fitz.Page, threshold: int = 5) -> bool:
     # 匹配行数 ≥ 阈值 或 ≥ 总行数 40%
     if toc_entry_count >= threshold:
         return True
-    if total_lines >= 3 and toc_entry_count / total_lines >= 0.4:
-        return True
-
-    return False
+    return total_lines >= 3 and toc_entry_count / total_lines >= 0.4
 
 
 def _is_toc_entry_line(line: dict) -> bool:

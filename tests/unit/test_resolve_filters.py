@@ -71,7 +71,10 @@ async def test_mixed_filters_merge_and_dedup():
         name_to_docs={"report.pdf": ["doc_a", "doc_c"]},
     )
     result = await resolve_filters(
-        pg, ["ds_001"], ["doc_d"], ["report.pdf"],
+        pg,
+        ["ds_001"],
+        ["doc_d"],
+        ["report.pdf"],
     )
     assert set(result["doc_id"]) == {"doc_a", "doc_b", "doc_c", "doc_d"}
 

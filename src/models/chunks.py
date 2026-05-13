@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -12,7 +11,7 @@ class ContentElement:
 
     type: str  # "text" | "table" | "image"
     content: str  # 文字原文、表格 Markdown 内容或图片占位文本
-    image_url: Optional[str] = None  # table 和 image 有值，内部 OSS 路径
+    image_url: str | None = None  # table 和 image 有值，内部 OSS 路径
 
     def to_dict(self) -> dict:
         return {
