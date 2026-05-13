@@ -1,4 +1,4 @@
-"""调试检索路由"""
+"""检索接口"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Request
 
-from src.api.schemas.debug import (
+from src.api.schemas.retrieve import (
     DebugChunk,
     DebugChunkMetadata,
     DebugChunkScores,
@@ -14,13 +14,13 @@ from src.api.schemas.debug import (
     RetrieveResponse,
 )
 
-router = APIRouter(prefix="/api/v1/debug", tags=["调试"])
+router = APIRouter(prefix="/api/v1", tags=["检索"])
 
 
-@router.post("/retrieve", response_model=RetrieveResponse, summary="调试检索接口")
+@router.post("/retrieve", response_model=RetrieveResponse, summary="检索接口")
 async def debug_retrieve(request: Request, body: RetrieveRequest):
     """
-    调试检索接口：绕过 LLM，直接返回检索分块结果。
+    检索接口：绕过 LLM，直接返回检索分块结果。
     支持 vector / bm25 / hybrid 三种检索模式。
     """
     if not body.question.strip():

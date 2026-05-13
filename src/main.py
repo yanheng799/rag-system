@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
-from src.api.routers import chunks, datasets, debug, documents, query
+from src.api.routers import chunks, datasets, documents, query, retrieve
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import init_parsers
 from src.orchestration.llm_client import QwenClient
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="RAG 问答系统",
-    description="电力工程领域 RAG（检索增强生成）系统 API",
+    description="RAG（检索增强生成）系统 API",
     version="0.1.0",
     lifespan=lifespan,
     docs_url=None,
@@ -117,7 +117,7 @@ app.include_router(chunks.router)
 app.include_router(datasets.router)
 app.include_router(documents.router)
 app.include_router(query.router)
-app.include_router(debug.router)
+app.include_router(retrieve.router)
 
 
 @app.get("/health")

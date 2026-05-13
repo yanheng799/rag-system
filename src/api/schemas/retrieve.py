@@ -1,4 +1,4 @@
-"""调试检索接口 Pydantic 模型"""
+"""检索接口 Pydantic 模型"""
 
 from typing import Literal, Optional
 

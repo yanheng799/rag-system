@@ -47,7 +47,7 @@ Five-layer architecture, each layer with a single responsibility communicating t
 | POST | `/api/v1/documents` | Upload document (multipart/form-data), returns `document_id` |
 | POST | `/api/v1/query` | Query (JSON), returns answer + sources + signed image URLs |
 | WebSocket | `/api/v1/query/ws` | Streaming query (SSE-style) |
-| POST | `/api/v1/debug/retrieve` | Debug retrieval — specify strategy (vector/BM25/hybrid) and weights |
+| POST | `/api/v1/retrieve` | Retrieval — specify strategy (vector/BM25/hybrid) and weights |
 
 ## Key Design Decisions
 
