@@ -15,7 +15,7 @@ class RetrieveRequest(BaseModel):
     doc_names: Optional[list[str]] = None
 
 
-class DebugChunkMetadata(BaseModel):
+class ChunkMetadataResult(BaseModel):
     chunk_id: str
     chunk_type: str
     filename: str
@@ -27,17 +27,17 @@ class DebugChunkMetadata(BaseModel):
     doc_id: str
 
 
-class DebugChunkScores(BaseModel):
+class ChunkScores(BaseModel):
     vector_score: float = 0.0
     bm25_score: float = 0.0
     rrf_score: Optional[float] = None
 
 
-class DebugChunk(BaseModel):
+class RetrievedChunkResult(BaseModel):
     rank: int
-    metadata: DebugChunkMetadata
+    metadata: ChunkMetadataResult
     full_text: str
-    scores: DebugChunkScores
+    scores: ChunkScores
     image_urls: list[str] = []
 
 
@@ -46,5 +46,5 @@ class RetrieveResponse(BaseModel):
     search_mode: str
     total_retrieved: int
     retrieval_ms: int
-    chunks: list[DebugChunk]
+    chunks: list[RetrievedChunkResult]
     prompt: Optional[str] = None

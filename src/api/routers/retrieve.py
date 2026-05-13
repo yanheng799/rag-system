@@ -7,9 +7,9 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 
 from src.api.schemas.retrieve import (
-    DebugChunk,
-    DebugChunkMetadata,
-    DebugChunkScores,
+    ChunkMetadataResult,
+    ChunkScores,
+    RetrievedChunkResult,
     RetrieveRequest,
     RetrieveResponse,
 )
@@ -80,7 +80,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         meta_dict["filename"] = doc_filename_map.get(
             chunk.metadata.doc_id, chunk.metadata.source
         )
-        metadata = DebugChunkMetadata(**meta_dict)
+        metadata = ChunkMetadataResult(**meta_dict)
 
         image_urls = []
         for url in chunk.image_urls:
@@ -89,14 +89,14 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
             else:
                 image_urls.append(url)
 
-        scores = DebugChunkScores(
+        scores = ChunkScores(
             vector_score=chunk.vector_score,
             bm25_score=chunk.bm25_score,
             rrf_score=chunk.score if body.search_mode == "hybrid" else None,
         )
 
         debug_chunks.append(
-            DebugChunk(
+            RetrievedChunkResult(
                 rank=idx,
                 metadata=metadata,
                 full_text=chunk.full_text,
