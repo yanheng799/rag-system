@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.routers.chunks import _detect_chunk_type, EMBEDDING_MAX_CHARS
+from src.api.routers.chunks import _detect_chunk_type, EMBEDDING_MAX_CHARS
 
 
 class TestDetectChunkType:
@@ -186,7 +186,7 @@ class TestSplitGroupPolicy:
 
     def test_default_is_false(self):
         """Schema 默认值应为 False"""
-        from api.schemas.chunks import SplitRequest
+        from src.api.schemas.chunks import SplitRequest
         req = SplitRequest(split_at=1)
         assert req.link_group is False
 

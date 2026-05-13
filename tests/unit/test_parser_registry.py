@@ -2,11 +2,11 @@
 
 import pytest
 
-from ingestion.parsers.base import UnsupportedFileTypeError
-from ingestion.parsers.excel_parser import ExcelParser
-from ingestion.parsers.pdf_parser import PDFParser
-from ingestion.parsers.registry import ParserRegistry, init_parsers
-from ingestion.parsers.word_parser import WordParser
+from src.ingestion.parsers.base import UnsupportedFileTypeError
+from src.ingestion.parsers.excel_parser import ExcelParser
+from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.parsers.registry import ParserRegistry, init_parsers
+from src.ingestion.parsers.word_parser import WordParser
 
 
 class TestParserRegistry:

@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from config.settings import settings
+from src.config.settings import settings
 
 
 # ---- PostgreSQL 集成测试 ----
@@ -16,7 +16,7 @@ class TestPgStoreIntegration:
 
     @pytest.fixture
     def pg_store(self):
-        from storage.pg_store import PgStore
+        from src.storage.pg_store import PgStore
         return PgStore()
 
     def test_pg_store_init(self, pg_store):
@@ -24,7 +24,7 @@ class TestPgStoreIntegration:
 
     @pytest.mark.asyncio
     async def test_save_and_get_document(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         doc = DocumentRecord(
@@ -44,7 +44,7 @@ class TestPgStoreIntegration:
 
     @pytest.mark.asyncio
     async def test_update_status(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         doc = DocumentRecord(
@@ -60,10 +60,10 @@ class TestPgStoreIntegration:
 
     @pytest.mark.asyncio
     async def test_save_chunk(self, pg_store):
-        from models.documents import ChunkRecord
+        from src.models.documents import ChunkRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
         await pg_store.save_document(DocumentRecord(
             doc_id=doc_id,
             filename="test.pdf",
@@ -85,7 +85,7 @@ class TestPgStoreIntegration:
 
     @pytest.mark.asyncio
     async def test_delete_chunks_by_doc(self, pg_store):
-        from models.documents import DocumentRecord, ChunkRecord
+        from src.models.documents import DocumentRecord, ChunkRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         await pg_store.save_document(DocumentRecord(
@@ -115,12 +115,12 @@ class TestDatasetPgIntegration:
 
     @pytest.fixture
     def pg_store(self):
-        from storage.pg_store import PgStore
+        from src.storage.pg_store import PgStore
         return PgStore()
 
     @pytest.mark.asyncio
     async def test_create_and_get_dataset(self, pg_store):
-        from models.documents import DatasetRecord
+        from src.models.documents import DatasetRecord
 
         dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
         record = await pg_store.create_dataset(
@@ -178,7 +178,7 @@ class TestDatasetPgIntegration:
 
     @pytest.mark.asyncio
     async def test_count_docs_by_dataset(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
         await pg_store.create_dataset(
@@ -198,7 +198,7 @@ class TestDatasetPgIntegration:
 
     @pytest.mark.asyncio
     async def test_get_doc_ids_by_dataset_ids(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
         await pg_store.create_dataset(
@@ -219,7 +219,7 @@ class TestDatasetPgIntegration:
 
     @pytest.mark.asyncio
     async def test_get_doc_ids_by_filenames(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         unique_name = f"unique_file_{doc_id}.pdf"
@@ -234,7 +234,7 @@ class TestDatasetPgIntegration:
 
     @pytest.mark.asyncio
     async def test_document_with_dataset_id(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         dataset_id = f"ds_{uuid.uuid4().hex[:8]}"
         await pg_store.create_dataset(
@@ -256,7 +256,7 @@ class TestDatasetPgIntegration:
 
     @pytest.mark.asyncio
     async def test_delete_document(self, pg_store):
-        from models.documents import DocumentRecord
+        from src.models.documents import DocumentRecord
 
         doc_id = f"test_{uuid.uuid4().hex[:8]}"
         await pg_store.save_document(DocumentRecord(
@@ -284,7 +284,7 @@ class TestMinIOIntegration:
 
     @pytest.fixture
     def oss_store(self):
-        from storage.oss_store import OSSStore
+        from src.storage.oss_store import OSSStore
         store = OSSStore()
         store.ensure_bucket()
         return store
@@ -323,7 +323,7 @@ class TestMilvusIntegration:
 
     @pytest.fixture
     def milvus_store(self):
-        from storage.milvus_store import MilvusStore
+        from src.storage.milvus_store import MilvusStore
         store = MilvusStore()
         store.init_collection()
         return store
@@ -370,7 +370,7 @@ class TestEmbedderIntegration:
     """DashScope Embedding API 集成测试"""
 
     def test_embed_single(self):
-        from ingestion.embedder import Embedder
+        from src.ingestion.embedder import Embedder
 
         embedder = Embedder()
         vector = embedder.embed_single("测试文本")
@@ -378,7 +378,7 @@ class TestEmbedderIntegration:
         assert any(v != 0 for v in vector)
 
     def test_embed_batch(self):
-        from ingestion.embedder import Embedder
+        from src.ingestion.embedder import Embedder
 
         embedder = Embedder()
         vectors = embedder.embed(["测试文本1", "测试文本2"])
@@ -393,7 +393,7 @@ class TestLLMIntegration:
     """DashScope LLM API 集成测试"""
 
     def test_complete(self):
-        from orchestration.llm_client import QwenClient
+        from src.orchestration.llm_client import QwenClient
 
         client = QwenClient()
         messages = [

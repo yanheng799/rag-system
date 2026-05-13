@@ -3,12 +3,12 @@
 import os
 import pytest
 
-from ingestion.parsers.pdf_parser import PDFParser
-from ingestion.parsers.word_parser import WordParser
-from ingestion.parsers.registry import init_parsers, ParserRegistry
-from ingestion.chunkers.paragraph_grouper import group_elements_by_paragraph, detect_chunk_type
-from ingestion.chunkers.chunk_assembler import ChunkBuilder
-from ingestion.table_processor.describer import TableDescriber
+from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.parsers.word_parser import WordParser
+from src.ingestion.parsers.registry import init_parsers, ParserRegistry
+from src.ingestion.chunkers.paragraph_grouper import group_elements_by_paragraph, detect_chunk_type
+from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
+from src.ingestion.table_processor.describer import TableDescriber
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
 
@@ -113,7 +113,7 @@ class TestChunkBuilderIntegration:
                 return
 
     def test_build_excel_chunks(self):
-        from ingestion.parsers.excel_parser import ExcelParser
+        from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
         elements = parser.parse(
@@ -163,7 +163,7 @@ class TestDescriberIntegration:
         assert len(description) > 0
 
     def test_describe_excel_table(self):
-        from ingestion.parsers.excel_parser import ExcelParser
+        from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
         elements = parser.parse(

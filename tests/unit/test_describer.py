@@ -2,8 +2,8 @@
 
 import pytest
 
-from ingestion.parsers.base import ParsedElement
-from ingestion.table_processor.describer import TableDescriber
+from src.ingestion.parsers.base import ParsedElement
+from src.ingestion.table_processor.describer import TableDescriber
 
 
 class TestTableDescriber:

@@ -2,13 +2,13 @@
 
 import pytest
 
-from models.chunks import (
+from src.models.chunks import (
     ChunkMetadata,
     ContentElement,
     MixedChunk,
     RetrievedChunk,
 )
-from models.documents import ChunkRecord, DatasetRecord, DocumentRecord
+from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord
 
 
 class TestContentElement:

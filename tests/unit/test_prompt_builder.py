@@ -2,12 +2,12 @@
 
 import pytest
 
-from models.chunks import (
+from src.models.chunks import (
     ChunkMetadata,
     ContentElement,
     RetrievedChunk,
 )
-from orchestration.prompt_builder import PromptBuilder
+from src.orchestration.prompt_builder import PromptBuilder
 
 
 class TestPromptBuilder:

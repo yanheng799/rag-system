@@ -9,14 +9,14 @@ import pytest
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ingestion.parsers.pdf_parser import PDFParser
-from ingestion.chunkers.paragraph_grouper import (
+from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.chunkers.paragraph_grouper import (
     detect_chunk_type,
     group_elements_by_paragraph,
 )
-from ingestion.chunkers.chunk_assembler import ChunkBuilder
-from ingestion.table_processor.describer import TableDescriber
-from config.settings import settings
+from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
+from src.ingestion.table_processor.describer import TableDescriber
+from src.config.settings import settings
 
 logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

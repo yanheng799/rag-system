@@ -3,9 +3,9 @@
 import os
 import pytest
 
-from ingestion.parsers.pdf_parser import PDFParser
-from ingestion.parsers.word_parser import WordParser
-from ingestion.parsers.excel_parser import ExcelParser
+from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.parsers.word_parser import WordParser
+from src.ingestion.parsers.excel_parser import ExcelParser
 
 TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
 

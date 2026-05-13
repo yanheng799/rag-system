@@ -2,13 +2,13 @@
 
 import pytest
 
-from ingestion.chunkers.layout_detector import (
+from src.ingestion.chunkers.layout_detector import (
     detect_header_footer_zones,
     detect_page_layout,
     is_in_header_footer,
     reorder_elements_for_layout,
 )
-from ingestion.parsers.base import ParsedElement
+from src.ingestion.parsers.base import ParsedElement
 
 
 class TestLayoutDetector:
@@ -89,7 +89,7 @@ class TestHeaderFooterDetection:
 
     def test_tower_detail_header_filtered(self):
         """解析后不应包含页眉内容"""
-        from ingestion.parsers.pdf_parser import PDFParser
+        from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
         elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
@@ -117,7 +117,7 @@ class TestTableMarkdownFormat:
 
     def test_pdf_table_has_separator(self):
         """PDF 表格应包含 Markdown 分隔行 |---|"""
-        from ingestion.parsers.pdf_parser import PDFParser
+        from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
         elements = parser.parse(
@@ -131,7 +131,7 @@ class TestTableMarkdownFormat:
 
     def test_pdf_table_rows_start_with_pipe(self):
         """PDF 表格数据行应以 | 开头"""
-        from ingestion.parsers.pdf_parser import PDFParser
+        from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
         elements = parser.parse(
@@ -147,7 +147,7 @@ class TestTableMarkdownFormat:
 
     def test_describer_passes_markdown_through(self):
         """TableDescriber 应透传 Markdown 内容"""
-        from ingestion.table_processor.describer import TableDescriber
+        from src.ingestion.table_processor.describer import TableDescriber
 
         describer = TableDescriber()
         md = "| 姓名 | 年龄 |\n|---|---|\n| 张三 | 25 |"
@@ -156,7 +156,7 @@ class TestTableMarkdownFormat:
 
     def test_describer_passes_excel_format(self):
         """TableDescriber 应透传 Excel 格式"""
-        from ingestion.table_processor.describer import TableDescriber
+        from src.ingestion.table_processor.describer import TableDescriber
 
         describer = TableDescriber()
         excel = "工作表: Sheet1\n表头: A | B\nA: 1; B: 2"
@@ -165,24 +165,24 @@ class TestTableMarkdownFormat:
 
     def test_describer_empty_content(self):
         """TableDescriber 处理空内容"""
-        from ingestion.table_processor.describer import TableDescriber
+        from src.ingestion.table_processor.describer import TableDescriber
 
         describer = TableDescriber()
         elem = ParsedElement(elem_type="table", content="", page=0)
         assert describer.describe(elem) == ""
 
 
-from ingestion.chunkers.heading_patterns import (
+from src.ingestion.chunkers.heading_patterns import (
     is_heading_by_pattern,
     is_heading_combined,
 )
-from ingestion.chunkers.paragraph_grouper import (
+from src.ingestion.chunkers.paragraph_grouper import (
     detect_chunk_type,
     group_elements_by_paragraph,
     is_heading_element,
     is_new_paragraph_boundary,
 )
-from ingestion.parsers.base import ParsedElement
+from src.ingestion.parsers.base import ParsedElement
 
 
 class TestHeadingPatterns:
@@ -421,7 +421,7 @@ class TestDetectChunkType:
         assert detect_chunk_type(elements) == "mixed"
 
 
-from ingestion.chunkers.merge_cross_page import (
+from src.ingestion.chunkers.merge_cross_page import (
     merge_cross_column_tables,
     merge_cross_page_tables,
 )
@@ -645,7 +645,7 @@ class TestCrossPageParagraph:
         assert len(result) == 2
 
 
-from ingestion.chunkers.layout_detector import detect_toc_pages
+from src.ingestion.chunkers.layout_detector import detect_toc_pages
 
 
 class TestTocDetection:
@@ -689,7 +689,7 @@ class TestTocFiltered:
 
     def test_toc_content_filtered_in_parse(self):
         """解析后目录页内容应被过滤"""
-        from ingestion.parsers.pdf_parser import PDFParser
+        from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
         elements = parser.parse("test-files/10.设计交底文件.pdf")

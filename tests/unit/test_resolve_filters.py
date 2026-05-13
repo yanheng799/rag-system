@@ -2,7 +2,7 @@
 
 import pytest
 
-from api.routers.query import resolve_filters
+from src.api.routers.query import resolve_filters
 
 
 class FakePgStore:

@@ -4,7 +4,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
-from storage.milvus_store import MilvusStore
+from src.storage.milvus_store import MilvusStore
 
 
 def main():
