@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
 from src.api.routers import chunks, datasets, documents, query, retrieve
+from src.ingestion.chunkers.registry import init_chunkers
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import init_parsers
 from src.orchestration.llm_client import QwenClient
@@ -35,6 +36,9 @@ async def lifespan(app: FastAPI):
 
     # 注册解析器
     init_parsers()
+
+    # 注册分块策略
+    init_chunkers()
 
     # 存储层组件
     pg_store = PgStore()

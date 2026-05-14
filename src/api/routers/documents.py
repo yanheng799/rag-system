@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
 import os
 from datetime import UTC
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 
 from src.api.schemas.documents import (
     DocumentListItem,
@@ -163,7 +164,7 @@ async def list_documents(
 
 @router.post("/ingest", response_model=IngestResponse, summary="摄入文档")
 async def ingest_documents(request: Request, body: IngestRequest):
-    """对指定文档执行解析和向量化。仅处理 status=pending 的文档。"""
+    """对指定文档提交解析任务。仅处理 status=pending/failed 的文档，立即返回，后台异步执行。"""
     pg_store = request.app.state.pg_store
     oss_store = request.app.state.oss_store
     milvus_store = request.app.state.milvus_store
@@ -197,35 +198,47 @@ async def ingest_documents(request: Request, body: IngestRequest):
             )
             continue
 
-        # 从 OSS 下载到临时文件
-        tmp_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tmp")
-        os.makedirs(tmp_dir, exist_ok=True)
-        tmp_path = os.path.join(tmp_dir, f"{doc_id}.{doc.file_type}")
+        # 立即将状态设为 processing
+        await pg_store.update_status(doc_id, "processing")
 
-        try:
-            file_data = oss_store.download(doc.raw_file_url)
-            with open(tmp_path, "wb") as f:
-                f.write(file_data)
+        # 创建后台解析任务
+        chunk_opts = body.chunk_options
+        task = asyncio.create_task(
+            _run_ingest(doc_id, doc.file_type, doc.raw_file_url, pipeline, oss_store, chunk_opts)
+        )
+        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
-            await pipeline.ingest(doc_id, tmp_path, doc.file_type, skip_oss_upload=True)
-
-            updated_doc = await pg_store.get_document(doc_id)
-            results.append(
-                IngestResult(
-                    doc_id=doc_id,
-                    filename=doc.filename,
-                    status=updated_doc.status if updated_doc else "failed",
-                    error_msg=updated_doc.error_msg if updated_doc else None,
-                )
-            )
-        except Exception as e:
-            logger.exception("文档摄入失败: doc_id=%s", doc_id)
-            results.append(IngestResult(doc_id=doc_id, filename=doc.filename, status="failed", error_msg=str(e)))
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        results.append(
+            IngestResult(doc_id=doc_id, filename=doc.filename, status="accepted", error_msg=None)
+        )
 
     return IngestResponse(results=results)
+
+
+async def _run_ingest(
+    doc_id: str,
+    file_type: str,
+    raw_file_url: str,
+    pipeline,  # IngestionPipeline — 避免循环导入
+    oss_store,  # ObjectStorePort — 避免循环导入
+    chunk_options=None,  # ChunkOptions | None
+) -> None:
+    """后台执行文档解析，完成后更新状态"""
+    tmp_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tmp")
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp_path = os.path.join(tmp_dir, f"{doc_id}.{file_type}")
+
+    try:
+        file_data = oss_store.download(raw_file_url)
+        with open(tmp_path, "wb") as f:
+            f.write(file_data)
+
+        await pipeline.ingest(doc_id, tmp_path, file_type, skip_oss_upload=True, chunk_options=chunk_options)
+    except Exception:
+        logger.exception("后台文档摄入失败: doc_id=%s", doc_id)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 # ---- 删除文档 ----

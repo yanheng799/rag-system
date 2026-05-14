@@ -1,6 +1,6 @@
 # RAG 系统整体设计文档
 
-> 版本：v1.8 | 状态：Phase 2 开发中
+> 版本：v1.9 | 状态：Phase 2 开发中
 
 ---
 
@@ -20,7 +20,7 @@
 ### 2.1 数据摄入
 
 - 支持多格式文档解析：PDF、Word (.docx)、Excel (.xlsx)，各格式有独立 Parser 实现，通过插件注册表统一管理。旧格式 (.doc, .xls) 及 HTML/Markdown 支持推迟到后续 Phase
-- 智能分块：按语义段落边界切割，保持段落内文字与表格的整体性
+- 智能分块：按语义段落边界切割，保持段落内文字与表格的整体性。支持 4 种分块策略（段落/标题/固定大小/逐页），通过 API 参数在文档解析时选择
 - 元数据提取：来源、时间、作者、章节等自动提取
 - Phase 1 同步摄入，Phase 4 引入 Celery 异步任务队列，支持失败自动重试（最多 3 次），超限后进入死信队列并告警
 - **混合块支持**：同一段落内的文字与表格作为一个整体分块，召回时文字描述与表格截图一并返回
@@ -137,7 +137,128 @@ def group_elements_by_paragraph(elements):
     return paragraphs
 ```
 
-#### 3.2.2 完整摄入流程
+#### 3.2.2 分块策略
+
+系统支持 4 种分块策略，通过 API 参数 `chunk_options.strategy` 在文档解析时选择。未指定时默认使用 `paragraph` 策略。
+
+| 策略 | 名称 | 适用场景 | 核心逻辑 |
+|------|------|---------|---------|
+| 段落分块 | `paragraph` | 书籍、论文、连续文本 | 自适应行距 + 首行缩进 + 段末短行 + 标题边界 |
+| 标题分块 | `heading` | 技术文档、法规文件 | 仅按标题（章节）边界拆分，保持章节完整 |
+| 固定大小 | `fixed_size` | 通用兜底、需要均匀分块 | 按 `max_size` 滑窗切割，支持 `overlap` 重叠 |
+| 逐页分块 | `page` | 表格密集文档、每页独立 | 每页元素聚合为一组，超限按大小拆分 |
+
+**API 请求参数**（`POST /api/v1/documents/ingest`）：
+
+```json
+{
+  "doc_ids": ["doc_001"],
+  "chunk_options": {
+    "strategy": "paragraph",
+    "max_size": 1024,
+    "min_size": 50,
+    "overlap": 0,
+    "vertical_gap": 15.0
+  }
+}
+```
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `strategy` | string | `"paragraph"` | 分块策略：`paragraph` / `heading` / `fixed_size` / `page` |
+| `max_size` | int | `1024` | 单个分块最大字符数 |
+| `min_size` | int | `50` | 分块最小字符数，低于此值与相邻分块合并 |
+| `overlap` | int | `0` | 固定大小策略的重叠字符数 |
+| `vertical_gap` | float | `15.0` | 段落策略的垂直间距阈值（像素） |
+
+**各策略详细逻辑**：
+
+**paragraph（段落分块）** — 默认策略：
+
+```
+遍历扁平 Element 列表，通过多信号判断段落边界：
+1. 标题元素（elem_type=title / 正则匹配编号模式）→ 始终开始新段落
+2. 跨页元素 → 页底→页顶连续文本不拆分，否则新段落
+3. 垂直间距 > 有效阈值 → 新段落
+   - 有效阈值 = max(配置值, 文档典型行距 + 2px)  ← 自适应行距
+4. 首行缩进检测：当前行 x0 右偏于正文左边距 → 新段落
+5. 段末短行检测：前一行 x1 未到达右边界 → 新段落（缩进的兜底信号）
+6. 超长组按 max_size 在元素边界拆分
+7. 小分块合并：总字符 < min_size 的组与相邻组合并
+```
+
+支持双栏排版：自动按 x0 聚类检测分栏，每栏独立计算左右边距。
+
+**heading（标题分块）**：
+
+```
+遍历扁平 Element 列表：
+1. 遇到标题元素 → 开始新组
+2. 非标题元素 → 追加到当前组
+3. 超长组按 max_size 在元素边界拆分（保护标题不孤立）
+4. 孤立标题（总字符 < 40）合并到下一组
+5. 小分块合并
+```
+
+适合章节结构清晰的技术手册、法规文件，每个分块是一个完整的章节/小节。
+
+**fixed_size（固定大小分块）**：
+
+```
+遍历扁平 Element 列表：
+1. 按元素顺序累加字符数
+2. 达到 max_size 时切分
+3. 如果 overlap > 0，切分前回溯 overlap 个字符的元素作为下一组开头
+4. 不区分标题/正文/表格，纯按大小切割
+5. 小分块合并
+```
+
+适合需要均匀分块的通用场景，overlap 参数可用于保持上下文连续性。
+
+**page（逐页分块）**：
+
+```
+1. 按页码分组，每页所有元素为一组
+2. 超长页按 max_size 在元素边界拆分
+3. 跨页表格/图片保持完整（同 group_id）
+4. 小分块合并
+```
+
+适合表格密集的工程文档（如杆塔明细表），每页内容相对独立。
+
+**分块器接口设计**：
+
+```python
+class BaseChunker(ABC):
+    @abstractmethod
+    def chunk(
+        self,
+        elements: list[ParsedElement],
+        page_sizes: dict[int, tuple[float, float]],
+        doc_id: str,
+        max_chunk_size: int,
+        **kwargs,
+    ) -> list[tuple[list[ParsedElement], str]]:
+        """将元素列表分块，返回 [(elements, group_id), ...]"""
+```
+
+通过注册表模式管理：
+
+```python
+class ChunkerRegistry:
+    _chunkers: ClassVar[dict[str, BaseChunker]] = {}
+
+    @classmethod
+    def get(cls, strategy: str) -> BaseChunker: ...
+```
+
+注册关系：
+- `"paragraph"` → ParagraphChunker
+- `"heading"` → HeadingChunker
+- `"fixed_size"` → FixedSizeChunker
+- `"page"` → PageChunker
+
+#### 3.2.3 完整摄入流程
 
 ```
 原始文档（PDF / Word）
@@ -488,6 +609,7 @@ class RAGOrchestrator:
 | PATCH | `/api/v1/datasets/{dataset_id}` | 更新数据集（名称/描述） |
 | DELETE | `/api/v1/datasets/{dataset_id}?force=false` | 删除数据集（有文档时需 `force=true`） |
 | POST | `/api/v1/documents` | 上传文档（`dataset_id` 选填） |
+| POST | `/api/v1/documents/ingest` | 解析文档（`chunk_options` 选填：`strategy`/`max_size`/`min_size`/`overlap`/`vertical_gap`） |
 | DELETE | `/api/v1/documents/{doc_id}` | 删除文档（级联清理向量+分块+OSS） |
 | POST | `/api/v1/query` | 问答（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
 | POST | `/api/v1/debug/retrieve` | 调试检索（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
@@ -822,6 +944,7 @@ PDF / Word / Excel 文档上传
 ## 九、扩展原则
 
 - **新增文档格式** → 实现 `BaseParser` 接口，注册到 Parser 工厂，无需改动主流程
+- **新增分块策略** → 实现 `BaseChunker` 接口，注册到 `ChunkerRegistry`，通过 API 参数 `strategy` 选择
 - **替换向量库** → 修改 `VectorStorePort` 实现类，业务代码不动
 - **升级 LLM** → 修改 `LLMClient` 配置项，切换模型端点；`FallbackLLMClient` 自动降级到备用模型
 - **优化检索策略** → 替换 Pipeline 中的单个节点，其余节点不受影响；RRF 权重通过配置中心运行时调整

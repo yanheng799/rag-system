@@ -1,14 +1,15 @@
-"""摄入主流程 Pipeline（同步版）"""
+"""摄入主流程 Pipeline"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
 
 from src.config.settings import settings
 from src.ingestion.chunkers.chunk_assembler import ChunkBuilder
-from src.ingestion.chunkers.paragraph_grouper import group_elements_by_paragraph
+from src.ingestion.chunkers.registry import ChunkerRegistry
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import ParserRegistry
 from src.ingestion.table_processor.describer import TableDescriber
@@ -47,6 +48,7 @@ class IngestionPipeline:
         file_path: str,
         file_type: str,
         skip_oss_upload: bool = False,
+        chunk_options=None,
     ) -> None:
         """
         完整摄入流程：
@@ -73,7 +75,7 @@ class IngestionPipeline:
 
             # 3. 解析文档
             parser = ParserRegistry.get(file_type)
-            elements = parser.parse(file_path)
+            elements = await asyncio.to_thread(parser.parse, file_path)
             logger.info("文档解析完成: %d 个元素", len(elements))
 
             if not elements:
@@ -81,24 +83,44 @@ class IngestionPipeline:
                 logger.info("文档无内容，跳过: doc_id=%s", doc_id)
                 return
 
-            # 4. 段落边界识别
+            # 4. 分块
             page_sizes: dict[int, tuple[float, float]] = {}
             if file_type == "pdf":
-                import fitz
+                page_sizes = await asyncio.to_thread(_get_pdf_page_sizes, file_path)
 
-                pdf_doc = fitz.open(file_path)
-                for pn in range(len(pdf_doc)):
-                    page_sizes[pn] = (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height)
-                pdf_doc.close()
+            strategy = "paragraph"
+            max_size = settings.chunk_max_size
+            min_size = 50
+            overlap = 0
+            vertical_gap = settings.chunk_vertical_gap
 
-            paragraphs = group_elements_by_paragraph(
+            if chunk_options:
+                from src.api.schemas.documents import ChunkOptions
+                if isinstance(chunk_options, dict):
+                    chunk_options = ChunkOptions(**chunk_options)
+                if chunk_options.strategy:
+                    strategy = chunk_options.strategy
+                if chunk_options.max_size is not None:
+                    max_size = chunk_options.max_size
+                if chunk_options.min_size is not None:
+                    min_size = chunk_options.min_size
+                if chunk_options.overlap is not None:
+                    overlap = chunk_options.overlap
+                if chunk_options.vertical_gap is not None:
+                    vertical_gap = chunk_options.vertical_gap
+
+            chunker = ChunkerRegistry.get(strategy)
+            paragraphs = await asyncio.to_thread(
+                chunker.chunk,
                 elements,
-                vertical_gap_threshold=settings.chunk_vertical_gap,
-                max_chunk_size=settings.chunk_max_size,
-                page_sizes=page_sizes,
-                doc_id=doc_id,
+                page_sizes,
+                doc_id,
+                max_size,
+                min_chunk_size=min_size,
+                overlap=overlap,
+                vertical_gap=vertical_gap,
             )
-            logger.info("段落聚合完成: %d 个段落组", len(paragraphs))
+            logger.info("分块完成: %d 个分块 (策略=%s)", len(paragraphs), strategy)
 
             # 5. 组装 MixedChunk
             chunks: list[MixedChunk] = []
@@ -156,7 +178,7 @@ class IngestionPipeline:
                 logger.info("文档所有分块为空，跳过: doc_id=%s", doc_id)
                 return
             texts = [c.full_text for c in non_empty_chunks]
-            embeddings = self._embedder.embed(texts)
+            embeddings = await asyncio.to_thread(self._embedder.embed, texts)
 
             # 7. 写入 Milvus
             milvus_records = []
@@ -206,6 +228,18 @@ class IngestionPipeline:
             logger.error("文档摄入失败: doc_id=%s, 错误: %s", doc_id, str(e))
             await self._doc_store.update_status(doc_id, "failed", error_msg=str(e))
             raise
+
+
+def _get_pdf_page_sizes(file_path: str) -> dict[int, tuple[float, float]]:
+    """读取 PDF 每页尺寸"""
+    import fitz
+
+    sizes: dict[int, tuple[float, float]] = {}
+    pdf_doc = fitz.open(file_path)
+    for pn in range(len(pdf_doc)):
+        sizes[pn] = (pdf_doc[pn].rect.width, pdf_doc[pn].rect.height)
+    pdf_doc.close()
+    return sizes
 
 
 def generate_doc_id() -> str:
