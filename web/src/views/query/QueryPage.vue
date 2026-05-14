@@ -13,7 +13,7 @@
           :key="s.id"
           class="session-item"
           :class="{ active: s.id === store.activeSessionId }"
-          @click="store.switchSession(s.id)"
+          @click="handleSwitchSession(s.id)"
         >
           <div class="session-title" v-if="editingId !== s.id">
             {{ s.title }}
@@ -90,6 +90,28 @@
         </div>
       </div>
 
+      <div class="filter-bar">
+        <a-select
+          v-model:value="selectedDatasetIds"
+          mode="multiple"
+          placeholder="选择知识库（可选）"
+          style="min-width: 200px"
+          :options="datasetOptions"
+          allow-clear
+          :max-tag-count="2"
+        />
+        <a-select
+          v-model:value="selectedDocIds"
+          mode="multiple"
+          placeholder="选择文档（可选）"
+          style="min-width: 200px"
+          :options="docOptions"
+          allow-clear
+          :max-tag-count="2"
+          :disabled="docLoading"
+        />
+      </div>
+
       <div class="chat-input">
         <a-textarea
           v-model:value="question"
@@ -107,7 +129,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined,
@@ -120,8 +143,12 @@ import { useQuerySessionStore } from '@/stores/querySession'
 import { queryRag } from '@/api/query'
 import type { SourceData } from '@/stores/querySession'
 import { renderMarkdown } from '@/utils/markdown'
+import { listDatasets, type DatasetResponse } from '@/api/datasets'
+import { listDocuments, type DocumentListItem } from '@/api/documents'
 
 const store = useQuerySessionStore()
+const route = useRoute()
+
 const question = ref('')
 const loading = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
@@ -129,10 +156,36 @@ const editingId = ref<string | null>(null)
 const editTitle = ref('')
 const renameInput = ref<InstanceType<typeof HTMLInputElement> | null>(null)
 
+const datasets = ref<DatasetResponse[]>([])
+const selectedDatasetIds = ref<string[]>([])
+const docs = ref<DocumentListItem[]>([])
+const selectedDocIds = ref<string[]>([])
+const docLoading = ref(false)
+
+const datasetOptions = computed(() =>
+  datasets.value.map((ds) => ({ label: ds.name, value: ds.dataset_id }))
+)
+
+const docOptions = computed(() =>
+  docs.value.map((d) => ({ label: d.filename, value: d.doc_id }))
+)
+
 const activeSession = computed(() => store.getActiveSession())
 
 function handleNewSession() {
-  store.createSession()
+  const session = store.createSession()
+  session.dataset_ids = [...selectedDatasetIds.value]
+  session.doc_ids = [...selectedDocIds.value]
+}
+
+function handleSwitchSession(id: string) {
+  store.switchSession(id)
+  const session = store.getActiveSession()
+  if (session) {
+    selectedDatasetIds.value = [...session.dataset_ids]
+    selectedDocIds.value = [...session.doc_ids]
+    if (session.dataset_ids.length > 0) fetchDocs()
+  }
 }
 
 function startRename(s: { id: string; title: string }) {
@@ -150,8 +203,6 @@ function confirmRename(id: string) {
   editingId.value = null
 }
 
-
-
 function scrollToBottom() {
   nextTick(() => {
     if (messagesRef.value) {
@@ -162,6 +213,56 @@ function scrollToBottom() {
 
 watch(() => activeSession.value?.messages?.length, scrollToBottom)
 
+async function fetchDatasets() {
+  try {
+    const res = await listDatasets({ size: 100 })
+    datasets.value = res.items
+  } catch { /* ignore */ }
+}
+
+async function fetchDocs() {
+  if (selectedDatasetIds.value.length === 0) {
+    docs.value = []
+    return
+  }
+  docLoading.value = true
+  try {
+    const allDocs: DocumentListItem[] = []
+    for (const dsId of selectedDatasetIds.value) {
+      const res = await listDocuments({ dataset_id: dsId, size: 100 })
+      allDocs.push(...res.items)
+    }
+    docs.value = allDocs
+  } catch { /* ignore */ }
+  finally {
+    docLoading.value = false
+  }
+}
+
+watch(selectedDatasetIds, () => {
+  selectedDocIds.value = []
+  syncToSession()
+  fetchDocs()
+})
+
+watch(selectedDocIds, () => {
+  syncToSession()
+})
+
+function syncToSession() {
+  const session = store.getActiveSession()
+  if (session) {
+    session.dataset_ids = [...selectedDatasetIds.value]
+    session.doc_ids = [...selectedDocIds.value]
+  }
+}
+
+function parseUrlIds(param: string | string[] | undefined): string[] {
+  if (!param) return []
+  if (Array.isArray(param)) return param
+  return [param]
+}
+
 async function handleSend(e?: { shiftKey?: boolean }) {
   if (e?.shiftKey) return
   e?.preventDefault?.()
@@ -170,7 +271,9 @@ async function handleSend(e?: { shiftKey?: boolean }) {
   if (!q || loading.value) return
 
   if (!activeSession.value) {
-    store.createSession()
+    const session = store.createSession()
+    session.dataset_ids = [...selectedDatasetIds.value]
+    session.doc_ids = [...selectedDocIds.value]
   }
   const session = store.getActiveSession()!
   const now = new Date().toISOString()
@@ -180,7 +283,11 @@ async function handleSend(e?: { shiftKey?: boolean }) {
   loading.value = true
 
   try {
-    const res = await queryRag({ question: q })
+    const res = await queryRag({
+      question: q,
+      dataset_ids: selectedDatasetIds.value.length > 0 ? selectedDatasetIds.value : undefined,
+      doc_ids: selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
+    })
     const sources: SourceData[] = res.sources.map((s) => ({
       metadata: {
         chunk_id: s.metadata.chunk_id,
@@ -213,6 +320,19 @@ async function handleSend(e?: { shiftKey?: boolean }) {
     scrollToBottom()
   }
 }
+
+onMounted(async () => {
+  await fetchDatasets()
+
+  const urlDatasetIds = parseUrlIds(route.query.dataset_ids as string | string[] | undefined)
+  const urlDocIds = parseUrlIds(route.query.doc_ids as string | string[] | undefined)
+
+  if (urlDatasetIds.length > 0 || urlDocIds.length > 0) {
+    selectedDatasetIds.value = urlDatasetIds
+    if (urlDatasetIds.length > 0) await fetchDocs()
+    selectedDocIds.value = urlDocIds
+  }
+})
 </script>
 
 <style scoped>
@@ -433,6 +553,14 @@ async function handleSend(e?: { shiftKey?: boolean }) {
 .markdown-body :deep(pre code) {
   background: none;
   padding: 0;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  padding: 8px 24px;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
 }
 
 .chat-input {

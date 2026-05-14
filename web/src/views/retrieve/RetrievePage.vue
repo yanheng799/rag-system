@@ -27,11 +27,11 @@
     </div>
 
     <div class="search-bar">
-      <a-select v-model:value="searchMode" style="width: 120px">
-        <a-select-option value="vector">向量检索</a-select-option>
-        <a-select-option value="bm25">BM25</a-select-option>
-        <a-select-option value="hybrid">混合检索</a-select-option>
-      </a-select>
+      <a-radio-group v-model:value="searchMode" button-style="solid">
+        <a-radio-button value="hybrid">混合检索</a-radio-button>
+        <a-radio-button value="vector">向量检索</a-radio-button>
+        <a-radio-button value="bm25">BM25</a-radio-button>
+      </a-radio-group>
       <a-input-number v-model:value="topK" :min="1" :max="50" style="width: 100px" addon-before="Top" />
       <a-input
         v-model:value="question"
@@ -84,10 +84,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import { useRouter, useRoute } from 'vue-router'
 import { retrieveChunks, type RetrieveResponse } from '@/api/retrieve'
 import { listDatasets, type DatasetResponse } from '@/api/datasets'
 import { listDocuments, type DocumentListItem } from '@/api/documents'
 import { renderMarkdown } from '@/utils/markdown'
+
+const router = useRouter()
+const route = useRoute()
 
 const question = ref('')
 const searchMode = ref<'vector' | 'bm25' | 'hybrid'>('hybrid')
@@ -163,7 +167,26 @@ async function handleRetrieve() {
   }
 }
 
-onMounted(fetchDatasets)
+function parseUrlIds(param: string | string[] | undefined): string[] {
+  if (!param) return []
+  if (Array.isArray(param)) return param
+  return [param]
+}
+
+onMounted(async () => {
+  await fetchDatasets()
+
+  const urlDatasetIds = parseUrlIds(route.query.dataset_ids as string | string[] | undefined)
+  const urlDocIds = parseUrlIds(route.query.doc_ids as string | string[] | undefined)
+
+  if (urlDatasetIds.length > 0) {
+    selectedDatasetIds.value = urlDatasetIds
+    await fetchDocs()
+  }
+  if (urlDocIds.length > 0) {
+    selectedDocIds.value = urlDocIds
+  }
+})
 </script>
 
 <style scoped>

@@ -11,6 +11,8 @@
       <a-col v-for="ds in datasets" :key="ds.dataset_id" :xs="24" :sm="12" :md="8" :lg="6">
         <a-card hoverable @click="router.push(`/datasets/${ds.dataset_id}`)">
           <template #actions>
+            <a-tooltip title="问答"><message-outlined @click.stop="router.push({ path: '/query', query: { dataset_ids: ds.dataset_id } })" /></a-tooltip>
+            <a-tooltip title="检索"><search-outlined @click.stop="router.push({ path: '/retrieve', query: { dataset_ids: ds.dataset_id } })" /></a-tooltip>
             <a-tooltip title="编辑"><edit-outlined @click.stop="openEdit(ds)" /></a-tooltip>
             <a-tooltip title="删除"><delete-outlined @click.stop="confirmDelete(ds)" /></a-tooltip>
           </template>
@@ -60,7 +62,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, MessageOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import {
   listDatasets,
   createDataset,

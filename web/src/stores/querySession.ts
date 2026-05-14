@@ -26,6 +26,8 @@ export interface Session {
   created_at: string
   updated_at: string
   messages: Message[]
+  dataset_ids: string[]
+  doc_ids: string[]
 }
 
 const STORAGE_KEY = 'rag_query_sessions'
@@ -54,7 +56,7 @@ export const useQuerySessionStore = defineStore('querySession', () => {
   function createSession() {
     const id = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
     const now = new Date().toISOString()
-    const session: Session = { id, title: '新对话', created_at: now, updated_at: now, messages: [] }
+    const session: Session = { id, title: '新对话', created_at: now, updated_at: now, messages: [], dataset_ids: [], doc_ids: [] }
     sessions.value.unshift(session)
     activeSessionId.value = id
     return session
