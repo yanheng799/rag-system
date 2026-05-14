@@ -12,7 +12,7 @@ export interface UploadResponse {
 export interface DocumentStatusResponse {
   doc_id: string
   filename: string
-  status: 'pending' | 'processing' | 'done' | 'failed'
+  status: 'pending' | 'processing' | 'done' | 'failed' | 'accepted'
   error_msg: string | null
   uploaded_at: string | null
   updated_at: string | null
@@ -23,6 +23,14 @@ export interface IngestResult {
   filename: string
   status: string
   error_msg: string | null
+}
+
+export interface ChunkOptions {
+  strategy?: string
+  max_size?: number
+  min_size?: number
+  overlap?: number
+  vertical_gap?: number
 }
 
 export interface IngestResponse {
@@ -38,8 +46,11 @@ export const uploadDocuments = (files: File[], datasetId?: string) => {
   })
 }
 
-export const ingestDocuments = (docIds: string[]) =>
-  request.post<any, IngestResponse>('/documents/ingest', { doc_ids: docIds })
+export const ingestDocuments = (docIds: string[], chunkOptions?: ChunkOptions) =>
+  request.post<any, IngestResponse>('/documents/ingest', {
+    doc_ids: docIds,
+    chunk_options: chunkOptions || null,
+  }, { timeout: 30000 })
 
 export const getDocumentStatus = (docId: string) =>
   request.get<any, DocumentStatusResponse>(`/documents/${docId}/status`)
@@ -50,7 +61,7 @@ export const deleteDocument = (docId: string) =>
 export interface DocumentListItem {
   doc_id: string
   filename: string
-  status: 'pending' | 'processing' | 'done' | 'failed'
+  status: 'pending' | 'processing' | 'done' | 'failed' | 'accepted'
   error_msg: string | null
   uploaded_at: string | null
   updated_at: string | null

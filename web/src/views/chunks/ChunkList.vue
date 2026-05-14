@@ -118,6 +118,7 @@ const currentChunk = ref<ChunkListItem | null>(null)
 
 const columns = [
   { title: 'ID', key: 'chunk_id', width: 160 },
+  { title: '组ID', dataIndex: 'group_id', key: 'group_id', width: 120, customRender: ({ text }: { text: string }) => text || '-' },
   { title: '页码', dataIndex: 'page', key: 'page', width: 60 },
   { title: '序号', dataIndex: 'chunk_index', key: 'chunk_index', width: 60 },
   { title: '类型', dataIndex: 'chunk_type', key: 'chunk_type', width: 80 },

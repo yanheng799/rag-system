@@ -29,6 +29,38 @@
 
     <a-divider />
 
+    <!-- 分块设置 -->
+    <div style="margin-bottom: 16px">
+      <h3 style="margin: 0 0 12px 0">分块设置</h3>
+      <a-radio-group v-model:value="chunkForm.strategy" button-style="solid">
+        <a-radio-button value="paragraph">段落分块</a-radio-button>
+        <a-radio-button value="heading">标题分块</a-radio-button>
+        <a-radio-button value="fixed_size">固定大小</a-radio-button>
+        <a-radio-button value="page">逐页分块</a-radio-button>
+      </a-radio-group>
+      <p style="margin: 8px 0; color: #888; font-size: 13px">{{ strategyDesc }}</p>
+      <a-collapse ghost>
+        <a-collapse-panel key="advanced" header="高级设置">
+          <a-form layout="inline">
+            <a-form-item label="最大分块字符数">
+              <a-input-number v-model:value="chunkForm.max_size" :min="100" :max="8192" placeholder="默认 1024" />
+            </a-form-item>
+            <a-form-item v-if="chunkForm.strategy === 'fixed_size'" label="重叠字符数">
+              <a-input-number v-model:value="chunkForm.overlap" :min="0" :max="512" placeholder="默认 0" />
+            </a-form-item>
+            <a-form-item v-if="chunkForm.strategy === 'paragraph'" label="垂直间距阈值(px)">
+              <a-input-number v-model:value="chunkForm.vertical_gap" :min="0" :max="100" :step="0.5" placeholder="默认 15" />
+            </a-form-item>
+            <a-form-item label="最小分块字符数">
+              <a-input-number v-model:value="chunkForm.min_size" :min="0" :max="500" placeholder="默认 50" />
+            </a-form-item>
+          </a-form>
+        </a-collapse-panel>
+      </a-collapse>
+    </div>
+
+    <a-divider />
+
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
       <h3 style="margin: 0">文档列表</h3>
       <a-space>
@@ -63,6 +95,8 @@
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
+            <router-link v-if="record.status === 'done'" :to="{ path: '/query', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">问答</router-link>
+            <router-link v-if="record.status === 'done'" :to="{ path: '/retrieve', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">检索</router-link>
             <router-link v-if="record.status === 'done'" :to="`/documents/${record.doc_id}/chunks`">查看分块</router-link>
             <a-button v-if="record.status === 'failed'" type="link" size="small" @click="retryDoc(record.doc_id)">重试</a-button>
             <a-popconfirm title="确定删除？" @confirm="handleDeleteDoc(record.doc_id)">
@@ -92,7 +126,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
-import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse } from '@/api/documents'
+import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
 const router = useRouter()
 const route = useRoute()
@@ -108,9 +142,24 @@ const editModalVisible = ref(false)
 const editSubmitting = ref(false)
 const editForm = ref({ name: '', description: '' })
 
+const chunkForm = ref({
+  strategy: 'paragraph',
+  max_size: null as number | null,
+  min_size: null as number | null,
+  overlap: null as number | null,
+  vertical_gap: null as number | null,
+})
+
+const strategyDesc = computed(() => ({
+  paragraph: '按段落边界分块，适合书籍、论文、连续文本',
+  heading: '按标题章节边界分块，适合技术文档、法规文件',
+  fixed_size: '按固定字符数切割，适合通用场景',
+  page: '按页码分块，适合表格密集文档',
+}[chunkForm.value.strategy] || ''))
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const selectableStatuses = new Set(['pending', 'failed'])
+const selectableStatuses = new Set(['pending', 'failed', 'accepted'])
 
 const rowSelection = computed(() => ({
   selectedRowKeys: selectedPending.value,
@@ -130,11 +179,11 @@ const columns = [
 ]
 
 function statusColor(s: string) {
-  return { pending: 'default', processing: 'processing', done: 'success', failed: 'error' }[s] || 'default'
+  return { pending: 'default', processing: 'processing', done: 'success', failed: 'error', accepted: 'processing' }[s] || 'default'
 }
 
 function statusLabel(s: string) {
-  return { pending: '待处理', processing: '处理中', done: '已完成', failed: '失败' }[s] || s
+  return { pending: '待处理', processing: '处理中', done: '已完成', failed: '失败', accepted: '已提交' }[s] || s
 }
 
 async function fetchDataset() {
@@ -201,7 +250,7 @@ async function handleIngest() {
   if (selectedPending.value.length === 0) return
   ingesting.value = true
   try {
-    await ingestDocuments(selectedPending.value)
+    await ingestDocuments(selectedPending.value, buildChunkOptions())
     message.success('已提交解析任务')
     for (const id of selectedPending.value) {
       const d = docs.value.find((d) => d.doc_id === id)
@@ -226,7 +275,7 @@ async function pollStatus(docId: string) {
 
 async function retryDoc(docId: string) {
   try {
-    await ingestDocuments([docId])
+    await ingestDocuments([docId], buildChunkOptions())
     const d = docs.value.find((d) => d.doc_id === docId)
     if (d) d.status = 'processing'
     message.success('已重新提交')
@@ -285,6 +334,17 @@ async function handleEditSubmit() {
   } finally {
     editSubmitting.value = false
   }
+}
+
+function buildChunkOptions(): ChunkOptions | undefined {
+  const opts: ChunkOptions = {}
+  let hasValue = false
+  if (chunkForm.value.strategy) { opts.strategy = chunkForm.value.strategy; hasValue = true }
+  if (chunkForm.value.max_size != null) { opts.max_size = chunkForm.value.max_size; hasValue = true }
+  if (chunkForm.value.min_size != null) { opts.min_size = chunkForm.value.min_size; hasValue = true }
+  if (chunkForm.value.overlap != null) { opts.overlap = chunkForm.value.overlap; hasValue = true }
+  if (chunkForm.value.vertical_gap != null) { opts.vertical_gap = chunkForm.value.vertical_gap; hasValue = true }
+  return hasValue ? opts : undefined
 }
 
 function confirmDeleteDataset() {
