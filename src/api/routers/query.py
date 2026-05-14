@@ -16,22 +16,29 @@ async def resolve_filters(
     doc_names,
 ) -> dict | None:
     """将 dataset_ids / doc_ids / doc_names 解析为 Milvus 过滤条件"""
-    collected_doc_ids: set[str] = set()
+    sets: list[set[str]] = []
 
     if dataset_ids:
         ids = await pg_store.get_doc_ids_by_dataset_ids(dataset_ids)
-        collected_doc_ids.update(ids)
+        sets.append(set(ids))
 
     if doc_ids:
-        collected_doc_ids.update(doc_ids)
+        sets.append(set(doc_ids))
 
     if doc_names:
         ids = await pg_store.get_doc_ids_by_filenames(doc_names)
-        collected_doc_ids.update(ids)
+        sets.append(set(ids))
 
-    if not collected_doc_ids:
+    if not sets:
         return None
-    return {"doc_id": sorted(collected_doc_ids)}
+
+    result = sets[0]
+    for s in sets[1:]:
+        result &= s
+
+    if not result:
+        return None
+    return {"doc_id": sorted(result)}
 
 
 @router.post("/query", response_model=QueryResponse, summary="问答接口")

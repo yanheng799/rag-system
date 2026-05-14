@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 import fitz  # pymupdf
 
-from src.ingestion.chunkers.heading_patterns import is_heading_combined
+from src.ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_heading_combined
 from src.ingestion.chunkers.layout_detector import (
     detect_header_footer_zones,
     detect_page_layout,
@@ -146,10 +147,13 @@ class PDFParser(BaseParser):
         table_bboxes: list,
         hf_zones: list | None = None,
     ) -> list[ParsedElement]:
-        """提取文字块，跳过表格区域、页眉页脚和页码"""
+        """提取文字块，同一 block 内连续同类型行合并为一个段落元素"""
         elements: list[ParsedElement] = []
         page_height = page.rect.height
         blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+
+        # 统计页面字号众数，作为正文基准字号
+        body_font_size = self._detect_body_font_size(blocks, page_height, hf_zones)
 
         for block in blocks:
             if block["type"] != 0:  # 只处理文字块
@@ -161,15 +165,16 @@ class PDFParser(BaseParser):
             if self._is_in_table(block_bbox, table_bboxes):
                 continue
 
+            # 阶段 1：收集有效行数据
+            line_data_list: list[dict] = []
             for line in block["lines"]:
                 line_bbox = tuple(line["bbox"])
 
-                # 跳过页眉页脚
                 if hf_zones and is_in_header_footer(line_bbox, hf_zones):
                     continue
 
                 line_text = ""
-                max_font_size = 0
+                max_font_size = 0.0
                 is_bold = False
 
                 for span in line["spans"]:
@@ -183,27 +188,91 @@ class PDFParser(BaseParser):
                 if not line_text:
                     continue
 
-                # 跳过页码（页面边缘区域的独立短数字）
                 if self._is_page_number(line_text, line_bbox, page_height):
                     continue
 
-                # 判断元素类型
-                elem_type = self._detect_text_type(line_text, max_font_size, is_bold)
+                elem_type = self._detect_text_type(line_text, max_font_size, is_bold, body_font_size)
+                line_data_list.append({
+                    "text": line_text,
+                    "bbox": line_bbox,
+                    "font_size": max_font_size,
+                    "bold": is_bold,
+                    "elem_type": elem_type,
+                })
 
-                elements.append(
-                    ParsedElement(
-                        elem_type=elem_type,
-                        content=line_text,
-                        page=page_num,
-                        bbox=line_bbox,
-                        style={
-                            "font_size": max_font_size,
-                            "bold": is_bold,
-                        },
+            # 阶段 2：按连续同类型分组，标题始终独立
+            if not line_data_list:
+                continue
+
+            groups: list[list[dict]] = []
+            current = [line_data_list[0]]
+
+            for i in range(1, len(line_data_list)):
+                curr = line_data_list[i]
+                prev_type = current[-1]["elem_type"]
+
+                # 标题始终独立成组
+                if curr["elem_type"] == "title":
+                    groups.append(current)
+                    current = [curr]
+                    continue
+
+                # 上一行是标题，标题独立，当前行开始新组
+                if prev_type == "title":
+                    groups.append(current)
+                    current = [curr]
+                    continue
+
+                # 同类型合并
+                if curr["elem_type"] == prev_type:
+                    current.append(curr)
+                    continue
+
+                # 类型变化，分割
+                groups.append(current)
+                current = [curr]
+
+            groups.append(current)
+
+            # 阶段 3：每组生成一个 ParsedElement
+            for group in groups:
+                if len(group) == 1:
+                    ld = group[0]
+                    elements.append(
+                        ParsedElement(
+                            elem_type=ld["elem_type"],
+                            content=ld["text"],
+                            page=page_num,
+                            bbox=ld["bbox"],
+                            style={"font_size": ld["font_size"], "bold": ld["bold"]},
+                        )
                     )
-                )
+                else:
+                    elements.append(self._merge_line_group(group, page_num))
 
         return elements
+
+    @staticmethod
+    def _merge_line_group(group: list[dict], page_num: int) -> ParsedElement:
+        """将同类型的行数据列表合并为一个 ParsedElement"""
+        merged_text = " ".join(ld["text"] for ld in group)
+        merged_bbox = (
+            min(ld["bbox"][0] for ld in group),
+            min(ld["bbox"][1] for ld in group),
+            max(ld["bbox"][2] for ld in group),
+            max(ld["bbox"][3] for ld in group),
+        )
+        max_font = max(ld["font_size"] for ld in group)
+        any_bold = any(ld["bold"] for ld in group)
+        elem_type = group[0]["elem_type"]
+
+        return ParsedElement(
+            elem_type=elem_type,
+            content=merged_text,
+            page=page_num,
+            bbox=merged_bbox,
+            style={"font_size": max_font, "bold": any_bold},
+        )
 
     def _extract_table_text(self, table) -> str:
         """将 pymupdf 表格对象提取为 Markdown 表格"""
@@ -244,15 +313,57 @@ class PDFParser(BaseParser):
             for tx0, ty0, tx1, ty1 in table_bboxes
         )
 
-    def _detect_text_type(self, text: str, font_size: float, is_bold: bool) -> str:
-        """根据样式和正则判断文字类型"""
-        # 标题判断：样式（字号/加粗）OR 正则匹配
-        if is_heading_combined(text, font_size, is_bold):
+    def _detect_text_type(self, text: str, font_size: float, is_bold: bool, body_font_size: float = 0.0) -> str:
+        """根据样式和正则判断文字类型。
+
+        body_font_size 为页面正文基准字号。当已知基准时，用相对阈值判断标题
+        （字号 > 基准 × 1.15 且加粗，或字号 > 基准 × 1.3）；否则回退到绝对阈值。
+        """
+        if body_font_size > 0:
+            ratio = font_size / body_font_size
+            is_heading_style = ratio > 1.3 or (ratio > 1.15 and is_bold)
+            # 有基准字号时，仅用正则做补充（不再用绝对字号阈值）
+            is_heading = is_heading_style or is_heading_by_pattern(text)
+        else:
+            is_heading = is_heading_combined(text, font_size, is_bold)
+
+        if is_heading:
             return "title"
-        # 列表项判断
         if text.startswith(("•", "●", "◆", "○", "■")) or (len(text) > 2 and text[0].isdigit() and text[1] in ".)"):
             return "list_item"
         return "text"
+
+    @staticmethod
+    def _detect_body_font_size(
+        blocks: list[dict],
+        page_height: float,
+        hf_zones: list | None = None,
+    ) -> float:
+        """统计页面内字号众数，作为正文基准字号。"""
+        size_counter: Counter[float] = Counter()
+        for block in blocks:
+            if block["type"] != 0:
+                continue
+            for line in block["lines"]:
+                line_bbox = tuple(line["bbox"])
+                if hf_zones and is_in_header_footer(line_bbox, hf_zones):
+                    continue
+                for span in line["spans"]:
+                    text = span["text"].strip()
+                    if not text:
+                        continue
+                    # 排除页面边缘的页码区域
+                    y0 = line_bbox[1]
+                    if y0 < page_height * 0.08 or y0 > page_height * 0.90:
+                        continue
+                    size = round(span["size"], 1)
+                    size_counter[size] += len(text)
+
+        if not size_counter:
+            return 0.0
+
+        # 按字符数加权，取众数
+        return size_counter.most_common(1)[0][0]
 
     def _is_page_number(self, text: str, bbox: tuple, page_height: float) -> bool:
         """判断文本是否为页码（页面边缘区域的独立短数字或 N / M 格式）"""

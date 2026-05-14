@@ -13,6 +13,9 @@ from src.storage.ports import VectorStorePort
 logger = logging.getLogger(__name__)
 
 
+FULL_TEXT_MAX_LENGTH = 65535
+
+
 class MilvusStore(VectorStorePort):
     """Milvus 向量存储实现"""
 
@@ -42,7 +45,7 @@ class MilvusStore(VectorStorePort):
             FieldSchema("embedding", DataType.FLOAT_VECTOR, dim=settings.embedding_dimension),
             FieldSchema("chunk_id", DataType.VARCHAR, max_length=128),
             FieldSchema("doc_id", DataType.VARCHAR, max_length=64),
-            FieldSchema("full_text", DataType.VARCHAR, max_length=32768, enable_analyzer=True),
+            FieldSchema("full_text", DataType.VARCHAR, max_length=FULL_TEXT_MAX_LENGTH, enable_analyzer=True),
             FieldSchema("chunk_type", DataType.VARCHAR, max_length=16),
             FieldSchema("elements", DataType.VARCHAR, max_length=65535),
             FieldSchema("image_urls", DataType.VARCHAR, max_length=2048),
@@ -109,12 +112,30 @@ class MilvusStore(VectorStorePort):
         if self._collection is None:
             self.init_collection()
 
-        data = [
-            {
+        # 获取已有 collection 的 full_text 字段实际 max_length
+        ft_max_len = FULL_TEXT_MAX_LENGTH
+        if self._collection is not None:
+            for field in self._collection.schema.fields:
+                if field.name == "full_text":
+                    ft_max_len = field.params.get("max_length", FULL_TEXT_MAX_LENGTH)
+                    break
+
+        data = []
+        for r in records:
+            text = r["full_text"]
+            if len(text) > ft_max_len:
+                logger.warning(
+                    "full_text 超长截断: chunk_id=%s, 原始长度=%d, 截断至=%d",
+                    r["chunk_id"],
+                    len(text),
+                    ft_max_len,
+                )
+                text = text[:ft_max_len]
+            data.append({
                 "embedding": r["embedding"],
                 "chunk_id": r["chunk_id"],
                 "doc_id": r["doc_id"],
-                "full_text": r["full_text"],
+                "full_text": text,
                 "chunk_type": r["chunk_type"],
                 "elements": json.dumps(r["elements"], ensure_ascii=False),
                 "image_urls": json.dumps(r.get("image_urls", []), ensure_ascii=False),
@@ -125,9 +146,7 @@ class MilvusStore(VectorStorePort):
                 "created_at": r["created_at"],
                 "pages": json.dumps(r.get("pages", [r["page"]]), ensure_ascii=False),
                 "group_id": r.get("group_id", ""),
-            }
-            for r in records
-        ]
+            })
         result = self._collection.insert(data)
         self._collection.flush()
         logger.info("Milvus 插入 %d 条记录", len(data))
