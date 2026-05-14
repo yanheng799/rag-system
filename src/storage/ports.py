@@ -64,7 +64,9 @@ class DocumentStorePort(ABC):
         """重置文档记录以重新摄入"""
 
     @abstractmethod
-    async def list_documents(self, page: int = 1, size: int = 20) -> tuple[list[DocumentRecord], int]:
+    async def list_documents(
+        self, page: int = 1, size: int = 20, dataset_id: str | None = None
+    ) -> tuple[list[DocumentRecord], int]:
         """分页查询文档列表，返回 (记录列表, 总数)"""
 
     @abstractmethod

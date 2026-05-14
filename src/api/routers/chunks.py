@@ -164,10 +164,23 @@ async def list_chunks(
 async def get_chunk_detail(request: Request, chunk_id: str):
     """返回分块的完整 elements、full_text、image_urls"""
     pg_store = request.app.state.pg_store
+    signed_url_service = request.app.state.signed_url_service
 
     chunk = await pg_store.get_chunk(chunk_id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="分块不存在")
+
+    elements = chunk.elements if isinstance(chunk.elements, list) else []
+    if signed_url_service:
+        elements = signed_url_service.sign_elements(elements)
+
+    raw_urls = chunk.image_urls if isinstance(chunk.image_urls, list) else []
+    image_urls = []
+    for url in raw_urls:
+        if signed_url_service:
+            image_urls.append(signed_url_service.sign(url))
+        else:
+            image_urls.append(url)
 
     return ChunkDetail(
         chunk_id=chunk.chunk_id,
@@ -177,8 +190,8 @@ async def get_chunk_detail(request: Request, chunk_id: str):
         chunk_index=chunk.chunk_index,
         char_count=chunk.char_count,
         full_text=chunk.full_text,
-        elements=chunk.elements if isinstance(chunk.elements, list) else [],
-        image_urls=chunk.image_urls if isinstance(chunk.image_urls, list) else [],
+        elements=elements,
+        image_urls=image_urls,
         group_id=chunk.group_id,
         created_at=chunk.created_at,
     )

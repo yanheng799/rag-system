@@ -115,6 +115,10 @@ class PDFParser(BaseParser):
             # 提取表格内容
             table_text = self._extract_table_text(table)
 
+            # 跳过无效表格：内容为空或几乎全为空单元格
+            if not table_text or not self._is_valid_table(table):
+                continue
+
             elements.append(
                 ParsedElement(
                     elem_type="table",
@@ -209,13 +213,22 @@ class PDFParser(BaseParser):
 
         md_lines = []
         for i, row in enumerate(rows):
-            cells = [str(cell).replace("|", "｜") if cell else "" for cell in row]
+            cells = [str(cell).replace("|", "｜").replace("\n", "<br>") if cell else "" for cell in row]
             md_lines.append("| " + " | ".join(cells) + " |")
             # 表头后插入分隔行
             if i == 0:
                 md_lines.append("|" + "|".join("---" for _ in cells) + "|")
 
         return "\n".join(md_lines)
+
+    @staticmethod
+    def _is_valid_table(table) -> bool:
+        """判断表格是否有效：超过半数行有非空单元格"""
+        rows = table.extract()
+        if not rows:
+            return False
+        non_empty_rows = sum(1 for row in rows if any(cell and str(cell).strip() for cell in row))
+        return non_empty_rows > len(rows) / 2
 
     def _is_in_table(self, bbox, table_bboxes: list) -> bool:
         """判断文字块是否在表格区域内"""

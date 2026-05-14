@@ -46,11 +46,12 @@ class IngestionPipeline:
         doc_id: str,
         file_path: str,
         file_type: str,
+        skip_oss_upload: bool = False,
     ) -> None:
         """
         完整摄入流程：
         1. 更新状态为 processing
-        2. 上传原始文件至 OSS
+        2. 上传原始文件至 OSS（skip_oss_upload=True 时跳过）
         3. 解析文档
         4. 段落边界识别
         5. 组装 MixedChunk
@@ -65,9 +66,10 @@ class IngestionPipeline:
 
             # 2. 上传原始文件至 OSS
             filename = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                file_data = f.read()
-            _raw_file_url = self._oss.upload_raw_doc(doc_id, filename, file_data)
+            if not skip_oss_upload:
+                with open(file_path, "rb") as f:
+                    file_data = f.read()
+                self._oss.upload_raw_doc(doc_id, filename, file_data)
 
             # 3. 解析文档
             parser = ParserRegistry.get(file_type)

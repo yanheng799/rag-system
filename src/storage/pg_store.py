@@ -19,7 +19,7 @@ class PgStore(DocumentStorePort):
         self._engine = create_async_engine(dsn, echo=False, pool_size=10, max_overflow=20)
         self._session_factory = async_sessionmaker(self._engine, class_=AsyncSession, expire_on_commit=False)
 
-    async def get_session(self) -> AsyncSession:
+    def get_session(self) -> AsyncSession:
         return self._session_factory()
 
     async def save_document(self, doc: DocumentRecord) -> None:
@@ -105,15 +105,19 @@ class PgStore(DocumentStorePort):
             await session.execute(stmt)
             await session.commit()
 
-    async def list_documents(self, page: int = 1, size: int = 20) -> tuple[list[DocumentRecord], int]:
+    async def list_documents(
+        self, page: int = 1, size: int = 20, dataset_id: str | None = None
+    ) -> tuple[list[DocumentRecord], int]:
         async with self._session_factory() as session:
-            # 总数
-            count_result = await session.execute(select(func.count()).select_from(DocumentORM))
+            base_query = select(DocumentORM)
+            if dataset_id is not None:
+                base_query = base_query.where(DocumentORM.dataset_id == dataset_id)
+
+            count_result = await session.execute(select(func.count()).select_from(base_query.subquery()))
             total = count_result.scalar() or 0
 
-            # 分页查询
             result = await session.execute(
-                select(DocumentORM).order_by(DocumentORM.uploaded_at.desc()).offset((page - 1) * size).limit(size)
+                base_query.order_by(DocumentORM.uploaded_at.desc()).offset((page - 1) * size).limit(size)
             )
             rows = result.scalars().all()
             records = [

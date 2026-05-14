@@ -1,6 +1,5 @@
 # 环境与密钥
 .env
-docs/配置信息.txt
 
 # Python
 __pycache__/
@@ -37,3 +36,7 @@ Thumbs.db
 # 日志
 *.log
 logs/
+
+# web
+web/dist
+web/node_modules

@@ -152,7 +152,7 @@ class WordParser(BaseParser):
         for i, row in enumerate(table.rows):
             cells = []
             for cell in row.cells:
-                text = cell.text.strip().replace("|", "｜") if cell.text else ""
+                text = cell.text.strip().replace("|", "｜").replace("\n", "<br>") if cell.text else ""
                 cells.append(text)
             md_lines.append("| " + " | ".join(cells) + " |")
             if i == 0:
