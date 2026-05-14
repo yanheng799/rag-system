@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 from src.ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_section_heading
 from src.ingestion.parsers.base import ParsedElement
@@ -13,6 +14,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_VERTICAL_GAP_THRESHOLD = 15.0
 # 默认最大分块字符数
 DEFAULT_MAX_CHUNK_SIZE = 1024
+# 首行缩进检测阈值（像素），超过此值认为是缩进
+DEFAULT_INDENT_THRESHOLD = 10.0
+# 段末右边界阈值（像素），行尾距右边界超过此值视为段末短行
+DEFAULT_RIGHT_MARGIN_THRESHOLD = 30.0
 
 
 def is_heading_element(elem: ParsedElement) -> bool:
@@ -27,6 +32,9 @@ def is_new_paragraph_boundary(
     group: list[ParsedElement],
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
     page_sizes: dict[int, tuple[float, float]] | None = None,
+    body_margins: dict[int, tuple[float, float]] | None = None,
+    indent_threshold: float = DEFAULT_INDENT_THRESHOLD,
+    right_margin_threshold: float = DEFAULT_RIGHT_MARGIN_THRESHOLD,
 ) -> bool:
     """
     判断当前元素是否为新段落边界。
@@ -36,6 +44,8 @@ def is_new_paragraph_boundary(
     2. 标题元素始终触发新边界（按标题分片）
     3. 跨页 → 如果是页底→页顶的连续文本则不拆分，否则新段落
     4. 垂直间距 > 阈值 且 前一个元素不是标题 → 新段落
+    5. 首行缩进检测：当前元素 x0 显著右偏于正文左边距 → 新段落
+    6. 段末短行检测：前一个元素 x1 显著小于正文右边界 → 新段落
     """
     if not group:
         return True
@@ -74,6 +84,18 @@ def is_new_paragraph_boundary(
         # 前一个元素是标题 → 不拆分，标题吸收下方内容
         return not is_heading_element(last)
 
+    # 首行缩进 + 段末短行检测（需要正文边距信息且均为文本元素）
+    if body_margins and not elem.is_table and not last.is_table and not is_heading_element(elem):
+        margins = body_margins.get(elem.page)
+        if margins is not None:
+            body_left, body_right = margins
+            # 规则 5：首行缩进 — 当前元素 x0 显著右偏于正文左边距
+            if elem.bbox[0] > body_left + indent_threshold and abs(last.bbox[0] - body_left) < indent_threshold:
+                return True
+            # 规则 6：段末短行 — 前一个元素 x1 显著小于正文右边界
+            if last.bbox[2] < body_right - right_margin_threshold:
+                return True
+
     return False
 
 
@@ -98,12 +120,22 @@ def group_elements_by_paragraph(
     if not elements:
         return []
 
+    # 自适应行距检测：如果典型行距大于配置阈值，自动提高阈值
+    effective_gap_threshold = vertical_gap_threshold
+    dominant_gap = _detect_dominant_line_spacing(elements)
+    if dominant_gap and dominant_gap > vertical_gap_threshold:
+        effective_gap_threshold = dominant_gap + 2.0
+        logger.info("自适应行距: 典型行距=%.1fpx, 有效阈值=%.1fpx", dominant_gap, effective_gap_threshold)
+
+    # 首行缩进检测：统计每页正文左边距
+    body_margins = _detect_page_body_margins(elements)
+
     # 阶段 1：按段落边界分组
     paragraphs: list[list[ParsedElement]] = []
     current_group: list[ParsedElement] = []
 
     for elem in elements:
-        if is_new_paragraph_boundary(elem, current_group, vertical_gap_threshold, page_sizes):
+        if is_new_paragraph_boundary(elem, current_group, effective_gap_threshold, page_sizes, body_margins):
             if current_group:
                 paragraphs.append(current_group)
             current_group = [elem]
@@ -236,6 +268,49 @@ def _split_group_by_size(
             sub_groups.append(current)
 
     return sub_groups
+
+
+def _detect_dominant_line_spacing(elements: list[ParsedElement]) -> float | None:
+    """检测文档中同页相邻文本元素之间的典型垂直间距（众数）。"""
+    gap_counter: Counter[float] = Counter()
+    for i in range(1, len(elements)):
+        prev, curr = elements[i - 1], elements[i]
+        if prev.page != curr.page:
+            continue
+        if prev.is_table or curr.is_table or prev.is_image or curr.is_image:
+            continue
+        gap = curr.bbox[1] - prev.bbox[3]
+        if gap > 0:
+            rounded = round(gap * 2) / 2
+            gap_counter[rounded] += 1
+
+    if not gap_counter:
+        return None
+    return gap_counter.most_common(1)[0][0]
+
+
+def _detect_page_body_margins(elements: list[ParsedElement]) -> dict[int, tuple[float, float]]:
+    """检测每页正文文本的左右边距（按文本长度加权的 x0/x1 众数）。"""
+    page_elements: dict[int, list[ParsedElement]] = {}
+    for e in elements:
+        if not e.is_table and not e.is_image and e.elem_type != "title":
+            page_elements.setdefault(e.page, []).append(e)
+
+    margins: dict[int, tuple[float, float]] = {}
+    for page, elems in page_elements.items():
+        if not elems:
+            continue
+        x0_counter: Counter[float] = Counter()
+        x1_counter: Counter[float] = Counter()
+        for e in elems:
+            weight = max(len(e.content), 1)
+            x0_counter[round(e.bbox[0])] += weight
+            x1_counter[round(e.bbox[2])] += weight
+        body_left = x0_counter.most_common(1)[0][0]
+        body_right = x1_counter.most_common(1)[0][0]
+        margins[page] = (body_left, body_right)
+
+    return margins
 
 
 def _is_page_continuation(
