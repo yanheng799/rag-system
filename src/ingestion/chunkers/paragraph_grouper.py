@@ -32,7 +32,7 @@ def is_new_paragraph_boundary(
     group: list[ParsedElement],
     vertical_gap_threshold: float = DEFAULT_VERTICAL_GAP_THRESHOLD,
     page_sizes: dict[int, tuple[float, float]] | None = None,
-    body_margins: dict[int, tuple[float, float]] | None = None,
+    body_margins: dict[int, list[tuple[float, float]]] | None = None,
     indent_threshold: float = DEFAULT_INDENT_THRESHOLD,
     right_margin_threshold: float = DEFAULT_RIGHT_MARGIN_THRESHOLD,
 ) -> bool:
@@ -86,15 +86,17 @@ def is_new_paragraph_boundary(
 
     # 首行缩进 + 段末短行检测（需要正文边距信息且均为文本元素）
     if body_margins and not elem.is_table and not last.is_table and not is_heading_element(elem):
-        margins = body_margins.get(elem.page)
-        if margins is not None:
-            body_left, body_right = margins
-            # 规则 5：首行缩进 — 当前元素 x0 显著右偏于正文左边距
-            if elem.bbox[0] > body_left + indent_threshold and abs(last.bbox[0] - body_left) < indent_threshold:
-                return True
-            # 规则 6：段末短行 — 前一个元素 x1 显著小于正文右边界
-            if last.bbox[2] < body_right - right_margin_threshold:
-                return True
+        column_margins = body_margins.get(elem.page)
+        if column_margins is not None:
+            margins = _find_column_margin(column_margins, elem)
+            if margins is not None:
+                body_left, body_right = margins
+                # 规则 5：首行缩进 — 当前元素 x0 显著右偏于正文左边距
+                if elem.bbox[0] > body_left + indent_threshold and abs(last.bbox[0] - body_left) < indent_threshold:
+                    return True
+                # 规则 6：段末短行 — 前一个元素 x1 显著小于正文右边界
+                if last.bbox[2] < body_right - right_margin_threshold:
+                    return True
 
     return False
 
@@ -289,28 +291,106 @@ def _detect_dominant_line_spacing(elements: list[ParsedElement]) -> float | None
     return gap_counter.most_common(1)[0][0]
 
 
-def _detect_page_body_margins(elements: list[ParsedElement]) -> dict[int, tuple[float, float]]:
-    """检测每页正文文本的左右边距（按文本长度加权的 x0/x1 众数）。"""
+def _detect_page_body_margins(elements: list[ParsedElement]) -> dict[int, list[tuple[float, float]]]:
+    """检测每页正文文本的左右边距（按文本长度加权的 x0/x1 众数）。
+
+    支持双栏排版：自动检测 x0 聚类，分栏计算各自的边距。
+    返回 {page: [(left, right), ...]}，单栏页面为单元素列表。
+    """
     page_elements: dict[int, list[ParsedElement]] = {}
     for e in elements:
         if not e.is_table and not e.is_image and e.elem_type != "title":
             page_elements.setdefault(e.page, []).append(e)
 
-    margins: dict[int, tuple[float, float]] = {}
+    margins: dict[int, list[tuple[float, float]]] = {}
     for page, elems in page_elements.items():
         if not elems:
             continue
-        x0_counter: Counter[float] = Counter()
-        x1_counter: Counter[float] = Counter()
-        for e in elems:
-            weight = max(len(e.content), 1)
-            x0_counter[round(e.bbox[0])] += weight
-            x1_counter[round(e.bbox[2])] += weight
-        body_left = x0_counter.most_common(1)[0][0]
-        body_right = x1_counter.most_common(1)[0][0]
-        margins[page] = (body_left, body_right)
+
+        # 按 x0 聚类检测分栏
+        columns = _cluster_by_x0(elems)
+
+        if len(columns) <= 1:
+            margins[page] = [_compute_column_margin(elems)]
+        else:
+            margins[page] = [_compute_column_margin(col) for col in columns]
 
     return margins
+
+
+def _find_column_margin(
+    column_margins: list[tuple[float, float]], elem: ParsedElement
+) -> tuple[float, float] | None:
+    """从多栏边距列表中找到元素所属栏的边距。"""
+    if not column_margins:
+        return None
+    if len(column_margins) == 1:
+        return column_margins[0]
+    best = min(column_margins, key=lambda m: abs(elem.bbox[0] - m[0]))
+    return best
+
+
+def _cluster_by_x0(elems: list[ParsedElement], gap: float = 100.0) -> list[list[ParsedElement]]:
+    """按 x0 聚类元素，检测双栏排版。gap 为栏间最小间距阈值。"""
+    if not elems:
+        return [[]]
+
+    # 用 x0 的分箱来检测聚类：将 x0 四舍五入到 20px 精度
+    bucket_elems: dict[int, list[ParsedElement]] = {}
+    for e in elems:
+        key = round(e.bbox[0] / 20) * 20
+        bucket_elems.setdefault(key, []).append(e)
+
+    sorted_keys = sorted(bucket_elems.keys())
+
+    # 按间距切分
+    clusters: list[list[int]] = []
+    current = [sorted_keys[0]]
+    for i in range(1, len(sorted_keys)):
+        if sorted_keys[i] - current[-1] > gap:
+            clusters.append(current)
+            current = [sorted_keys[i]]
+        else:
+            current.append(sorted_keys[i])
+    clusters.append(current)
+
+    # 将小簇（< 3 个元素）合并到最近的簇
+    if len(clusters) > 2:
+        merged: list[list[int]] = []
+        small_clusters: list[tuple[int, list[int]]] = []  # (center_x, keys)
+        big_clusters: list[tuple[int, list[int]]] = []
+        for c in clusters:
+            center = sum(c) / len(c)
+            total_elems = sum(len(bucket_elems[k]) for k in c)
+            if total_elems < 3:
+                small_clusters.append((center, c))
+            else:
+                big_clusters.append((center, c))
+
+        if big_clusters:
+            for center, c in small_clusters:
+                nearest = min(big_clusters, key=lambda bc: abs(bc[0] - center))
+                nearest[1].extend(c)
+            merged = [c for _, c in big_clusters]
+            # 重新按 center 排序
+            merged.sort(key=lambda c: sum(c) / len(c))
+            clusters = merged
+
+    # 映射回元素
+    return [[e for k in cluster for e in bucket_elems[k]] for cluster in clusters]
+
+
+def _compute_column_margin(elems: list[ParsedElement]) -> tuple[float, float]:
+    """计算一组元素的正文左右边距。"""
+    x0_counter: Counter[float] = Counter()
+    x1_counter: Counter[float] = Counter()
+    for e in elems:
+        weight = max(len(e.content), 1)
+        x0_counter[round(e.bbox[0])] += weight
+        x1_counter[round(e.bbox[2])] += weight
+    body_left = x0_counter.most_common(1)[0][0]
+    body_right = x1_counter.most_common(1)[0][0]
+    return (body_left, body_right)
 
 
 def _is_page_continuation(
