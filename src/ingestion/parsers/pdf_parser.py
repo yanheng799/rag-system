@@ -26,19 +26,24 @@ class PDFParser(BaseParser):
     def __init__(self, extract_images: bool = True):
         self._do_extract_images = extract_images
 
-    def parse(self, file_path: str) -> list[ParsedElement]:
+    def parse(self, file_path: str, max_pages: int | None = None) -> list[ParsedElement]:
         try:
             doc = fitz.open(file_path)
         except Exception as e:
             raise ParseError(file_path, str(e)) from e
 
-        hf_zones = detect_header_footer_zones(doc)
+        hf_zones = detect_header_footer_zones(doc, max_pages=max_pages)
         toc_pages = detect_toc_pages(doc)
+
+        total_pages = len(doc)
+        if max_pages is not None:
+            total_pages = min(total_pages, max_pages)
+
         elements: list[ParsedElement] = []
         page_sizes: dict[int, tuple[float, float]] = {}
         page_layouts: dict[int, str] = {}
 
-        for page_num in range(len(doc)):
+        for page_num in range(total_pages):
             if page_num in toc_pages:
                 continue
 
@@ -106,7 +111,11 @@ class PDFParser(BaseParser):
         elements: list[ParsedElement] = []
 
         # 先提取表格区域，用于过滤文字块中的表格部分
-        tables = page.find_tables()
+        try:
+            tables = page.find_tables()
+        except Exception:
+            logger.warning("find_tables 失败: page %d，跳过表格提取", page_num)
+            tables = []
         table_bboxes = []
 
         for table_idx, table in enumerate(tables):
@@ -192,13 +201,15 @@ class PDFParser(BaseParser):
                     continue
 
                 elem_type = self._detect_text_type(line_text, max_font_size, is_bold, body_font_size)
-                line_data_list.append({
-                    "text": line_text,
-                    "bbox": line_bbox,
-                    "font_size": max_font_size,
-                    "bold": is_bold,
-                    "elem_type": elem_type,
-                })
+                line_data_list.append(
+                    {
+                        "text": line_text,
+                        "bbox": line_bbox,
+                        "font_size": max_font_size,
+                        "bold": is_bold,
+                        "elem_type": elem_type,
+                    }
+                )
 
             # 阶段 2：按连续同类型分组，标题始终独立
             if not line_data_list:
@@ -394,7 +405,11 @@ class PDFParser(BaseParser):
             page_area = page.rect.width * page.rect.height
 
             # 收集该页表格 bbox 用于排除表格内图片
-            tables = page.find_tables()
+            try:
+                tables = page.find_tables()
+            except Exception:
+                logger.debug("find_tables 失败(图片提取): page %d", page_num)
+                tables = []
             table_bboxes = [tuple(t.bbox) for t in tables]
 
             image_infos = page.get_image_info(xrefs=True)

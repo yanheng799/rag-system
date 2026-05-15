@@ -151,6 +151,8 @@ async def list_documents(
             filename=r.filename,
             status=r.status,
             error_msg=r.error_msg,
+            file_size=r.file_size,
+            file_type=r.file_type,
             uploaded_at=r.uploaded_at.isoformat() if r.uploaded_at else None,
             updated_at=r.updated_at.isoformat() if r.updated_at else None,
         )
@@ -283,6 +285,8 @@ async def get_document_status(request: Request, doc_id: str):
         filename=doc.filename,
         status=doc.status,
         error_msg=doc.error_msg,
+        file_size=doc.file_size,
+        file_type=doc.file_type,
         uploaded_at=doc.uploaded_at.isoformat() if doc.uploaded_at else None,
         updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
     )

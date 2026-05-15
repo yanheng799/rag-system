@@ -34,6 +34,7 @@ def _bbox_in_table(bbox: tuple, table_bboxes: list[tuple]) -> bool:
 def detect_header_footer_zones(
     doc: fitz.Document,
     min_repeat: int = 3,
+    max_pages: int | None = None,
 ) -> list[tuple[float, float]]:
     """检测文档中页眉 / 页脚的 y 坐标区间。
 
@@ -45,6 +46,10 @@ def detect_header_footer_zones(
     if len(doc) < min_repeat:
         return []
 
+    scan_pages = len(doc)
+    if max_pages is not None:
+        scan_pages = min(scan_pages, max_pages)
+
     page_height = doc[0].rect.height
     y_tolerance = page_height * 0.02  # 2 % 页面高度
     header_limit = page_height * 0.08  # 顶部 8%
@@ -52,10 +57,14 @@ def detect_header_footer_zones(
 
     # 仅收集页面顶部和底部边缘、且不在表格内的文字行
     all_lines: list[tuple[int, float, str, str]] = []  # (page, y, norm, raw)
-    for pn in range(len(doc)):
+    for pn in range(scan_pages):
         page = doc[pn]
         # 收集本页表格区域
-        table_bboxes = [tuple(t.bbox) for t in page.find_tables()]
+        try:
+            table_bboxes = [tuple(t.bbox) for t in page.find_tables()]
+        except Exception:
+            logger.debug("find_tables 失败: page %d，跳过表格过滤", pn)
+            table_bboxes = []
         blocks = page.get_text("dict")["blocks"]
         for block in blocks:
             if block["type"] != 0:
@@ -288,8 +297,8 @@ def detect_toc_pages(doc: fitz.Document) -> set[int]:
     if total == 0:
         return set()
 
-    # 只扫描文档前 20% 页面
-    max_check = max(total // 5, 10)
+    # 只扫描文档前 20% 页面（最多 20 页）
+    max_check = min(max(total // 5, 10), 20)
 
     toc_pages: set[int] = set()
     for pn in range(min(max_check, total)):

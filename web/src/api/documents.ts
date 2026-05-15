@@ -14,6 +14,8 @@ export interface DocumentStatusResponse {
   filename: string
   status: 'pending' | 'processing' | 'done' | 'failed' | 'accepted'
   error_msg: string | null
+  file_size: number | null
+  file_type: string | null
   uploaded_at: string | null
   updated_at: string | null
 }
@@ -63,6 +65,8 @@ export interface DocumentListItem {
   filename: string
   status: 'pending' | 'processing' | 'done' | 'failed' | 'accepted'
   error_msg: string | null
+  file_size: number | null
+  file_type: string | null
   uploaded_at: string | null
   updated_at: string | null
 }

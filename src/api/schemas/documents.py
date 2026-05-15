@@ -18,6 +18,8 @@ class DocumentStatusResponse(BaseModel):
     filename: str
     status: str  # pending | processing | done | failed
     error_msg: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None
     uploaded_at: str | None = None
     updated_at: str | None = None
 
@@ -51,6 +53,8 @@ class DocumentListItem(BaseModel):
     filename: str
     status: str
     error_msg: str | None = None
+    file_size: int | None = None
+    file_type: str | None = None
     uploaded_at: str | None = None
     updated_at: str | None = None
 

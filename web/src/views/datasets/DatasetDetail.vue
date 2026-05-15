@@ -89,6 +89,12 @@
         <template v-if="column.key === 'status'">
           <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
         </template>
+        <template v-if="column.key === 'file_type'">
+          <span>{{ record.file_type || '-' }}</span>
+        </template>
+        <template v-if="column.key === 'file_size'">
+          <span>{{ formatFileSize(record.file_size) }}</span>
+        </template>
         <template v-if="column.key === 'error_msg'">
           <span v-if="record.error_msg" class="error-text">{{ record.error_msg }}</span>
           <span v-else>-</span>
@@ -151,10 +157,10 @@ const chunkForm = ref({
 })
 
 const strategyDesc = computed(() => ({
-  paragraph: '按段落边界分块，适合书籍、论文、连续文本',
-  heading: '按标题章节边界分块，适合技术文档、法规文件',
+  paragraph: '按段落边界分块，适合书籍、论文、连续文本（PDF/Word 推荐）',
+  heading: '按标题章节边界分块，适合技术文档、法规文件（PDF/Word 推荐）',
   fixed_size: '按固定字符数切割，适合通用场景',
-  page: '按页码分块，适合表格密集文档',
+  page: '按页码分块，适合表格密集文档（Excel 推荐）',
 }[chunkForm.value.strategy] || ''))
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -173,10 +179,19 @@ const rowSelection = computed(() => ({
 
 const columns = [
   { title: '文件名', dataIndex: 'filename', key: 'filename' },
+  { title: '类型', key: 'file_type', width: 70 },
+  { title: '大小', key: 'file_size', width: 90 },
   { title: '状态', key: 'status', width: 100 },
   { title: '错误信息', key: 'error_msg', ellipsis: true },
   { title: '操作', key: 'action', width: 200 },
 ]
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
 
 function statusColor(s: string) {
   return { pending: 'default', processing: 'processing', done: 'success', failed: 'error', accepted: 'processing' }[s] || 'default'
@@ -202,6 +217,8 @@ async function fetchDocs() {
       filename: d.filename,
       status: d.status,
       error_msg: d.error_msg,
+      file_size: d.file_size,
+      file_type: d.file_type,
       uploaded_at: d.uploaded_at,
       updated_at: d.updated_at,
     }))
@@ -231,6 +248,8 @@ async function handleUpload(options: { file: File; onSuccess?: () => void; onErr
         filename: u.filename,
         status: 'pending',
         error_msg: null,
+        file_size: options.file.size,
+        file_type: options.file.name.split('.').pop() || null,
         uploaded_at: u.uploaded_at,
         updated_at: null,
       })
