@@ -139,6 +139,20 @@ src/
 - CI/CD pipeline
 - Legacy formats (.doc, .xls) — require LibreOffice
 
+## Agent skills
+
+### Issue tracker
+
+Issues tracked in GitHub (`yanheng799/rag-system`). Uses `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical labels: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. See `docs/agents/domain.md`.
+
 ## 注意
 
 - 在实现过程中及时提交 **feature**，确保测试用例通过
