@@ -47,7 +47,7 @@
     <div v-if="result" class="result-meta">
       <span>共 {{ result.total_retrieved }} 条结果</span>
       <span>检索模式: {{ searchMode }}</span>
-      <span>耗时: {{ result.retrieval_ms.toFixed(0) }}ms</span>
+      <span class="tabular-nums">耗时: {{ result.retrieval_ms.toFixed(0) }}ms</span>
     </div>
 
     <a-empty v-if="!loading && result && result.chunks.length === 0" description="未找到相关分块" />
@@ -74,6 +74,7 @@
             :key="i"
             :src="url"
             :width="200"
+            :alt="'表格截图 ' + (i + 1)"
           />
         </div>
       </a-card>
@@ -256,53 +257,6 @@ onMounted(async () => {
   color: #333;
   max-height: 300px;
   overflow-y: auto;
-}
-
-.markdown-body :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-}
-
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  border: 1px solid #d9d9d9;
-  padding: 6px 12px;
-  text-align: left;
-  font-size: 13px;
-}
-
-.markdown-body :deep(th) {
-  background: #fafafa;
-  font-weight: 600;
-}
-
-.markdown-body :deep(tr:nth-child(even)) {
-  background: #fafafa;
-}
-
-.markdown-body :deep(img) {
-  max-width: 100%;
-}
-
-.markdown-body :deep(pre) {
-  background: #f5f5f5;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 13px;
-}
-
-.markdown-body :deep(code) {
-  background: #f5f5f5;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 13px;
-}
-
-.markdown-body :deep(pre code) {
-  background: none;
-  padding: 0;
 }
 
 .chunk-images {

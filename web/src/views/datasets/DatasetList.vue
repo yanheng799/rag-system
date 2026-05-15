@@ -9,12 +9,13 @@
 
     <a-row :gutter="[16, 16]">
       <a-col v-for="ds in datasets" :key="ds.dataset_id" :xs="24" :sm="12" :md="8" :lg="6">
-        <a-card hoverable @click="router.push(`/datasets/${ds.dataset_id}`)">
+        <a-card hoverable>
+          <router-link :to="`/datasets/${ds.dataset_id}`" class="card-link" aria-label="打开知识库"></router-link>
           <template #actions>
-            <a-tooltip title="问答"><message-outlined @click.stop="router.push({ path: '/query', query: { dataset_ids: ds.dataset_id } })" /></a-tooltip>
-            <a-tooltip title="检索"><search-outlined @click.stop="router.push({ path: '/retrieve', query: { dataset_ids: ds.dataset_id } })" /></a-tooltip>
-            <a-tooltip title="编辑"><edit-outlined @click.stop="openEdit(ds)" /></a-tooltip>
-            <a-tooltip title="删除"><delete-outlined @click.stop="confirmDelete(ds)" /></a-tooltip>
+            <a-tooltip title="问答"><router-link :to="{ path: '/query', query: { dataset_ids: ds.dataset_id } }" aria-label="问答"><message-outlined /></router-link></a-tooltip>
+            <a-tooltip title="检索"><router-link :to="{ path: '/retrieve', query: { dataset_ids: ds.dataset_id } }" aria-label="检索"><search-outlined /></router-link></a-tooltip>
+            <a-tooltip title="编辑"><span role="button" tabindex="0" aria-label="编辑" @click.stop="openEdit(ds)" @keydown.enter="openEdit(ds)"><edit-outlined /></span></a-tooltip>
+            <a-tooltip title="删除"><span role="button" tabindex="0" aria-label="删除" @click.stop="confirmDelete(ds)" @keydown.enter="confirmDelete(ds)"><delete-outlined /></span></a-tooltip>
           </template>
           <a-card-meta :title="ds.name">
             <template #description>
@@ -48,10 +49,10 @@
     >
       <a-form layout="vertical">
         <a-form-item label="名称" required>
-          <a-input v-model:value="form.name" :maxlength="256" placeholder="请输入知识库名称" />
+          <a-input v-model:value="form.name" :maxlength="256" placeholder="请输入知识库名称…" name="name" autocomplete="off" />
         </a-form-item>
         <a-form-item label="描述">
-          <a-textarea v-model:value="form.description" :rows="3" placeholder="可选描述" />
+          <a-textarea v-model:value="form.description" :rows="3" placeholder="可选描述…" name="description" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -60,7 +61,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, MessageOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import {
@@ -71,7 +71,6 @@ import {
   type DatasetResponse,
 } from '@/api/datasets'
 
-const router = useRouter()
 const datasets = ref<DatasetResponse[]>([])
 const loading = ref(false)
 const page = ref(1)
@@ -155,3 +154,20 @@ async function handleSubmit() {
 
 onMounted(fetchDatasets)
 </script>
+
+<style scoped>
+.card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+:deep(.ant-card) {
+  position: relative;
+}
+
+:deep(.ant-card-actions) {
+  position: relative;
+  z-index: 2;
+}
+</style>

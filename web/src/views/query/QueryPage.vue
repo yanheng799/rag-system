@@ -3,8 +3,8 @@
     <div class="session-sidebar">
       <div class="sidebar-header">
         <span>对话历史</span>
-        <a-button type="text" size="small" @click="handleNewSession">
-          <plus-outlined />
+        <a-button type="text" size="small" @click="handleNewSession" aria-label="新建对话">
+          <plus-outlined aria-hidden="true" />
         </a-button>
       </div>
       <div class="session-list">
@@ -13,7 +13,10 @@
           :key="s.id"
           class="session-item"
           :class="{ active: s.id === store.activeSessionId }"
+          role="button"
+          tabindex="0"
           @click="handleSwitchSession(s.id)"
+          @keydown.enter="handleSwitchSession(s.id)"
         >
           <div class="session-title" v-if="editingId !== s.id">
             {{ s.title }}
@@ -27,11 +30,11 @@
             ref="renameInput"
           />
           <div class="session-actions">
-            <a-button type="text" size="small" @click.stop="startRename(s)">
-              <edit-outlined />
+            <a-button type="text" size="small" @click.stop="startRename(s)" aria-label="重命名">
+              <edit-outlined aria-hidden="true" />
             </a-button>
-            <a-button type="text" size="small" danger @click.stop="store.deleteSession(s.id)">
-              <delete-outlined />
+            <a-button type="text" size="small" danger @click.stop="store.deleteSession(s.id)" aria-label="删除对话">
+              <delete-outlined aria-hidden="true" />
             </a-button>
           </div>
         </div>
@@ -45,12 +48,12 @@
         <template v-for="(msg, idx) in activeSession?.messages" :key="idx">
           <div :class="['message-row', msg.role]">
             <div class="message-avatar">
-              <user-outlined v-if="msg.role === 'user'" />
-              <robot-outlined v-else />
+              <user-outlined v-if="msg.role === 'user'" aria-hidden="true" />
+              <robot-outlined v-else aria-hidden="true" />
             </div>
             <div class="message-content">
               <div class="message-text" v-html="renderMarkdown(msg.content)"></div>
-              <div v-if="msg.total_ms" class="message-meta">耗时 {{ msg.total_ms.toFixed(0) }}ms</div>
+              <div v-if="msg.total_ms" class="message-meta tabular-nums">耗时 {{ msg.total_ms.toFixed(0) }}ms</div>
               <div v-if="msg.sources && msg.sources.length > 0" class="sources-section">
                 <a-collapse size="small" :bordered="false">
                   <a-collapse-panel header="引用来源">
@@ -63,11 +66,11 @@
                       <div class="source-elements">
                         <div v-for="(el, ei) in src.elements" :key="ei" class="source-element">
                           <template v-if="el.type === 'table'">
-                            <a-image v-if="el.image_url" :src="el.image_url" :width="200" />
+                            <a-image v-if="el.image_url" :src="el.image_url" :width="200" alt="表格截图" />
                             <div class="table-desc markdown-body" v-html="renderMarkdown(el.content)"></div>
                           </template>
                           <template v-else-if="el.type === 'image'">
-                            <a-image v-if="el.image_url" :src="el.image_url" :width="200" />
+                            <a-image v-if="el.image_url" :src="el.image_url" :width="200" alt="图片" />
                             <div v-else>{{ el.content }}</div>
                           </template>
                           <template v-else>
@@ -83,7 +86,7 @@
           </div>
         </template>
         <div v-if="loading" class="message-row assistant">
-          <div class="message-avatar"><robot-outlined /></div>
+          <div class="message-avatar"><robot-outlined aria-hidden="true" /></div>
           <div class="message-content">
             <a-spin size="small" /> 思考中…
           </div>
@@ -116,9 +119,11 @@
         <a-textarea
           v-model:value="question"
           :auto-size="{ minRows: 1, maxRows: 4 }"
-          placeholder="输入问题，按 Enter 发送，Shift+Enter 换行"
+          placeholder="输入问题，按 Enter 发送，Shift+Enter 换行…"
           @pressEnter="handleSend"
           :disabled="loading"
+          name="question"
+          autocomplete="off"
         />
         <a-button type="primary" :loading="loading" @click="handleSend" :disabled="!question.trim()">
           发送
@@ -154,7 +159,7 @@ const loading = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
 const editingId = ref<string | null>(null)
 const editTitle = ref('')
-const renameInput = ref<InstanceType<typeof HTMLInputElement> | null>(null)
+const renameInput = ref<any>(null)
 
 const datasets = ref<DatasetResponse[]>([])
 const selectedDatasetIds = ref<string[]>([])
@@ -506,53 +511,6 @@ onMounted(async () => {
 .table-desc {
   font-size: 12px;
   color: #888;
-}
-
-.markdown-body :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-}
-
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  border: 1px solid #d9d9d9;
-  padding: 6px 12px;
-  text-align: left;
-  font-size: 13px;
-}
-
-.markdown-body :deep(th) {
-  background: #fafafa;
-  font-weight: 600;
-}
-
-.markdown-body :deep(tr:nth-child(even)) {
-  background: #fafafa;
-}
-
-.markdown-body :deep(img) {
-  max-width: 100%;
-}
-
-.markdown-body :deep(pre) {
-  background: #f5f5f5;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 13px;
-}
-
-.markdown-body :deep(code) {
-  background: #f5f5f5;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 13px;
-}
-
-.markdown-body :deep(pre code) {
-  background: none;
-  padding: 0;
 }
 
 .filter-bar {

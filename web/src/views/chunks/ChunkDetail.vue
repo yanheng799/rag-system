@@ -33,7 +33,8 @@
           v-else
           v-model:value="editText"
           :rows="10"
-          placeholder="编辑分块内容"
+          placeholder="编辑分块内容…"
+          name="chunk_text"
         />
 
         <template v-if="chunk.elements && chunk.elements.length > 0">
@@ -45,11 +46,11 @@
                 <a-tag :color="el.type === 'table' ? 'orange' : el.type === 'image' ? 'purple' : 'blue'">{{ el.type }}</a-tag>
               </template>
               <template v-if="el.type === 'table'">
-                <a-image v-if="el.image_url" :src="el.image_url" :width="400" />
+                <a-image v-if="el.image_url" :src="el.image_url" :width="400" alt="表格截图" />
                 <div class="table-content markdown-body" v-html="renderMarkdown(el.content)"></div>
               </template>
               <template v-else-if="el.type === 'image'">
-                <a-image v-if="el.image_url" :src="el.image_url" :width="400" />
+                <a-image v-if="el.image_url" :src="el.image_url" :width="400" alt="图片" />
                 <div v-else class="element-content">{{ el.content }}</div>
               </template>
               <template v-else>
@@ -68,6 +69,7 @@
               :key="i"
               :src="url"
               :width="300"
+              :alt="'图片 ' + (i + 1)"
             />
           </div>
         </template>
@@ -156,53 +158,6 @@ onMounted(fetchChunk)
   font-size: 14px;
   max-height: 600px;
   overflow-y: auto;
-}
-
-.markdown-body :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-}
-
-.markdown-body :deep(th),
-.markdown-body :deep(td) {
-  border: 1px solid #d9d9d9;
-  padding: 6px 12px;
-  text-align: left;
-  font-size: 13px;
-}
-
-.markdown-body :deep(th) {
-  background: #fafafa;
-  font-weight: 600;
-}
-
-.markdown-body :deep(tr:nth-child(even)) {
-  background: #fafafa;
-}
-
-.markdown-body :deep(img) {
-  max-width: 100%;
-}
-
-.markdown-body :deep(pre) {
-  background: #f5f5f5;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 13px;
-}
-
-.markdown-body :deep(code) {
-  background: #f5f5f5;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 13px;
-}
-
-.markdown-body :deep(pre code) {
-  background: none;
-  padding: 0;
 }
 
 .elements-list {

@@ -1,19 +1,25 @@
 <template>
   <a-layout style="min-height: 100vh">
     <a-layout-header class="app-header">
-      <div class="header-logo" @click="router.push('/datasets')">RAG 系统</div>
-      <a-menu mode="horizontal" :selected-keys="[currentNav]" @click="onMenuClick">
+      <router-link to="/datasets" class="header-logo">RAG 系统</router-link>
+      <a-menu mode="horizontal" :selected-keys="[currentNav]">
         <a-menu-item key="datasets">
-          <database-outlined />
-          <span>知识库</span>
+          <router-link to="/datasets" class="nav-link">
+            <database-outlined aria-hidden="true" />
+            <span>知识库</span>
+          </router-link>
         </a-menu-item>
         <a-menu-item key="query">
-          <message-outlined />
-          <span>问答</span>
+          <router-link to="/query" class="nav-link">
+            <message-outlined aria-hidden="true" />
+            <span>问答</span>
+          </router-link>
         </a-menu-item>
         <a-menu-item key="retrieve">
-          <search-outlined />
-          <span>检索</span>
+          <router-link to="/retrieve" class="nav-link">
+            <search-outlined aria-hidden="true" />
+            <span>检索</span>
+          </router-link>
         </a-menu-item>
       </a-menu>
     </a-layout-header>
@@ -25,14 +31,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   DatabaseOutlined,
   MessageOutlined,
   SearchOutlined,
 } from '@ant-design/icons-vue'
 
-const router = useRouter()
 const route = useRoute()
 
 const currentNav = computed(() => {
@@ -41,10 +46,6 @@ const currentNav = computed(() => {
   if (path.startsWith('/retrieve')) return 'retrieve'
   return 'datasets'
 })
-
-const onMenuClick = ({ key }: { key: string }) => {
-  router.push(`/${key}`)
-}
 </script>
 
 <style scoped>
@@ -63,10 +64,16 @@ const onMenuClick = ({ key }: { key: string }) => {
   cursor: pointer;
   margin-right: 32px;
   white-space: nowrap;
+  text-decoration: none;
 }
 
 .app-header :deep(.ant-menu) {
   line-height: 64px;
   border-bottom: none;
+}
+
+.nav-link {
+  color: inherit;
+  text-decoration: none;
 }
 </style>

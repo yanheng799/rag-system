@@ -18,7 +18,7 @@
       :show-upload-list="false"
       :disabled="uploading"
     >
-      <p class="ant-upload-drag-icon"><inbox-outlined /></p>
+      <p class="ant-upload-drag-icon"><inbox-outlined aria-hidden="true" /></p>
       <p class="ant-upload-text">拖拽文件到此处，或点击上传</p>
       <p class="ant-upload-hint">支持 PDF、Word (.docx)、Excel (.xlsx)，单文件最大 50MB</p>
     </a-upload-dragger>
@@ -43,16 +43,16 @@
         <a-collapse-panel key="advanced" header="高级设置">
           <a-form layout="inline">
             <a-form-item label="最大分块字符数">
-              <a-input-number v-model:value="chunkForm.max_size" :min="100" :max="8192" placeholder="默认 1024" />
+              <a-input-number v-model:value="chunkForm.max_size" :min="100" :max="8192" placeholder="默认 1024" name="max_size" />
             </a-form-item>
             <a-form-item v-if="chunkForm.strategy === 'fixed_size'" label="重叠字符数">
-              <a-input-number v-model:value="chunkForm.overlap" :min="0" :max="512" placeholder="默认 0" />
+              <a-input-number v-model:value="chunkForm.overlap" :min="0" :max="512" placeholder="默认 0" name="overlap" />
             </a-form-item>
             <a-form-item v-if="chunkForm.strategy === 'paragraph'" label="垂直间距阈值(px)">
-              <a-input-number v-model:value="chunkForm.vertical_gap" :min="0" :max="100" :step="0.5" placeholder="默认 15" />
+              <a-input-number v-model:value="chunkForm.vertical_gap" :min="0" :max="100" :step="0.5" placeholder="默认 15" name="vertical_gap" />
             </a-form-item>
             <a-form-item label="最小分块字符数">
-              <a-input-number v-model:value="chunkForm.min_size" :min="0" :max="500" placeholder="默认 50" />
+              <a-input-number v-model:value="chunkForm.min_size" :min="0" :max="500" placeholder="默认 50" name="min_size" />
             </a-form-item>
           </a-form>
         </a-collapse-panel>
@@ -72,8 +72,8 @@
         >
           开始解析选中（{{ selectedPending.length }}）
         </a-button>
-        <a-button :loading="refreshing" @click="handleRefresh">
-          <reload-outlined /> 刷新
+        <a-button :loading="refreshing" @click="handleRefresh" aria-label="刷新">
+          <reload-outlined aria-hidden="true" /> 刷新
         </a-button>
       </a-space>
     </div>
@@ -116,10 +116,10 @@
     <a-modal v-model:open="editModalVisible" title="编辑知识库" @ok="handleEditSubmit" :confirm-loading="editSubmitting">
       <a-form layout="vertical">
         <a-form-item label="名称">
-          <a-input v-model:value="editForm.name" />
+          <a-input v-model:value="editForm.name" name="name" autocomplete="off" />
         </a-form-item>
         <a-form-item label="描述">
-          <a-textarea v-model:value="editForm.description" :rows="3" />
+          <a-textarea v-model:value="editForm.description" :rows="3" name="description" />
         </a-form-item>
       </a-form>
     </a-modal>
