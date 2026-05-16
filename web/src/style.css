@@ -1,5 +1,49 @@
 :root {
   --layout-header-height: 64px;
+
+  /* Semantic color tokens */
+  --color-primary: #1677ff;
+  --color-primary-bg: #e6f4ff;
+  --color-success: #52c41a;
+  --color-success-bg: #f6ffed;
+  --color-error: #ff4d4f;
+  --color-error-bg: #fff2f0;
+
+  /* Text */
+  --color-text-primary: #1f1f1f;
+  --color-text-secondary: #666;
+  --color-text-tertiary: #999;
+  --color-text-placeholder: #bfbfbf;
+
+  /* Background */
+  --color-bg-base: #fff;
+  --color-bg-subtle: #fafafa;
+  --color-bg-muted: #f5f5f5;
+  --color-bg-chat-user: #1677ff;
+
+  /* Border */
+  --color-border: #f0f0f0;
+  --color-border-strong: #d9d9d9;
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Typography */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
 }
 
 * {
@@ -14,7 +58,7 @@ html, body, #app {
 }
 
 .page-container {
-  padding: 24px;
+  padding: var(--space-6);
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -23,11 +67,11 @@ html, body, #app {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   margin: 0;
 }
@@ -36,24 +80,24 @@ html, body, #app {
 .markdown-body table {
   border-collapse: collapse;
   width: 100%;
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid #d9d9d9;
-  padding: 6px 12px;
+  border: 1px solid var(--color-border-strong);
+  padding: 6px var(--space-3);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .markdown-body th {
-  background: #fafafa;
+  background: var(--color-bg-subtle);
   font-weight: 600;
 }
 
 .markdown-body tr:nth-child(even) {
-  background: #fafafa;
+  background: var(--color-bg-subtle);
 }
 
 .markdown-body img {
@@ -61,18 +105,18 @@ html, body, #app {
 }
 
 .markdown-body pre {
-  background: #f5f5f5;
-  padding: 12px;
-  border-radius: 6px;
+  background: var(--color-bg-muted);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .markdown-body code {
-  background: #f5f5f5;
+  background: var(--color-bg-muted);
   padding: 2px 6px;
-  border-radius: 3px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
 }
 
 .markdown-body pre code {
@@ -87,7 +131,7 @@ html, body, #app {
 
 /* Focus-visible for keyboard users */
 :focus-visible {
-  outline: 2px solid #1677ff;
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 

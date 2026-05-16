@@ -21,6 +21,7 @@ class DocumentRecord:
     error_msg: str | None = None
     retry_count: int = 0
     created_by: str | None = None
+    chunk_count: int = 0
     uploaded_at: datetime | None = None
     updated_at: datetime | None = None
 

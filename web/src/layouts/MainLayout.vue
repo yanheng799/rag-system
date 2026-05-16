@@ -52,23 +52,23 @@ const currentNav = computed(() => {
 .app-header {
   display: flex;
   align-items: center;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
-  padding: 0 24px;
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-6);
 }
 
 .header-logo {
   font-size: 18px;
   font-weight: 700;
-  color: #1677ff;
+  color: var(--color-primary);
   cursor: pointer;
-  margin-right: 32px;
+  margin-right: var(--space-8);
   white-space: nowrap;
   text-decoration: none;
 }
 
 .app-header :deep(.ant-menu) {
-  line-height: 64px;
+  line-height: var(--layout-header-height);
   border-bottom: none;
 }
 

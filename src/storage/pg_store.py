@@ -50,6 +50,10 @@ class PgStore(DocumentStorePort):
             orm = result.scalar_one_or_none()
             if orm is None:
                 return None
+            cc_result = await session.execute(
+                select(func.count()).where(ChunkORM.doc_id == doc_id)
+            )
+            chunk_count = cc_result.scalar() or 0
             return DocumentRecord(
                 doc_id=orm.doc_id,
                 dataset_id=orm.dataset_id,
@@ -64,6 +68,7 @@ class PgStore(DocumentStorePort):
                 created_by=orm.created_by,
                 uploaded_at=orm.uploaded_at,
                 updated_at=orm.updated_at,
+                chunk_count=chunk_count,
             )
 
     async def get_document_by_hash(self, content_hash: str) -> DocumentRecord | None:
@@ -120,6 +125,17 @@ class PgStore(DocumentStorePort):
                 base_query.order_by(DocumentORM.uploaded_at.desc()).offset((page - 1) * size).limit(size)
             )
             rows = result.scalars().all()
+            doc_ids = [r.doc_id for r in rows]
+
+            chunk_counts: dict[str, int] = {}
+            if doc_ids:
+                cc_result = await session.execute(
+                    select(ChunkORM.doc_id, func.count())
+                    .where(ChunkORM.doc_id.in_(doc_ids))
+                    .group_by(ChunkORM.doc_id)
+                )
+                chunk_counts = dict(cc_result.all())
+
             records = [
                 DocumentRecord(
                     doc_id=r.doc_id,
@@ -135,6 +151,7 @@ class PgStore(DocumentStorePort):
                     created_by=r.created_by,
                     uploaded_at=r.uploaded_at,
                     updated_at=r.updated_at,
+                    chunk_count=chunk_counts.get(r.doc_id, 0),
                 )
                 for r in rows
             ]

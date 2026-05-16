@@ -67,7 +67,19 @@
           <a-tag v-if="chunk.scores.bm25_score > 0">BM25: {{ chunk.scores.bm25_score.toFixed(4) }}</a-tag>
           <a-tag v-if="chunk.scores.rrf_score != null" color="green">RRF: {{ chunk.scores.rrf_score.toFixed(4) }}</a-tag>
         </div>
-        <div class="chunk-text markdown-body" v-html="renderMarkdown(chunk.full_text)"></div>
+        <div
+          class="chunk-text markdown-body"
+          :class="{ collapsed: !expandedChunks.has(chunk.metadata.chunk_id) }"
+          v-html="renderMarkdown(chunk.full_text)"
+        ></div>
+        <a-button
+          v-if="chunk.full_text.length > 500"
+          type="link"
+          size="small"
+          @click="toggleChunkExpand(chunk.metadata.chunk_id)"
+        >
+          {{ expandedChunks.has(chunk.metadata.chunk_id) ? '收起' : '展开全文' }}
+        </a-button>
         <div v-if="chunk.image_urls && chunk.image_urls.length > 0" class="chunk-images">
           <a-image
             v-for="(url, i) in chunk.image_urls"
@@ -99,6 +111,15 @@ const searchMode = ref<'vector' | 'bm25' | 'hybrid'>('hybrid')
 const topK = ref(10)
 const loading = ref(false)
 const result = ref<RetrieveResponse | null>(null)
+const expandedChunks = ref(new Set<string>())
+
+function toggleChunkExpand(chunkId: string) {
+  if (expandedChunks.value.has(chunkId)) {
+    expandedChunks.value.delete(chunkId)
+  } else {
+    expandedChunks.value.add(chunkId)
+  }
+}
 
 const datasets = ref<DatasetResponse[]>([])
 const selectedDatasetIds = ref<string[]>([])
@@ -192,11 +213,11 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 .page-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .page-title {
@@ -205,63 +226,79 @@ onMounted(async () => {
 
 .filter-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .search-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
   align-items: center;
 }
 
 .result-meta {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: #666;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
 .chunk-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .chunk-card-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
 }
 
 .chunk-meta {
-  color: #999;
-  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
 }
 
 .detail-link {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 .chunk-scores {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .chunk-text {
   line-height: 1.6;
-  font-size: 13px;
-  color: #333;
-  max-height: 300px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
   overflow-y: auto;
 }
 
+.chunk-text.collapsed {
+  max-height: 200px;
+  overflow: hidden;
+  position: relative;
+}
+
+.chunk-text.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: linear-gradient(transparent, var(--color-bg-base));
+  pointer-events: none;
+}
+
 .chunk-images {
-  margin-top: 8px;
+  margin-top: var(--space-2);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 </style>

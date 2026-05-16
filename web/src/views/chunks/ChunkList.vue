@@ -249,11 +249,11 @@ onMounted(() => {
 
 <style scoped>
 .page-container {
-  padding: 0 24px 24px;
+  padding: 0 var(--space-6) var(--space-6);
 }
 
 .text-preview {
-  color: #666;
-  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
 }
 </style>

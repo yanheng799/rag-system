@@ -343,49 +343,49 @@ onMounted(async () => {
 <style scoped>
 .query-layout {
   display: flex;
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--layout-header-height));
 }
 
 .session-sidebar {
   width: 260px;
-  border-right: 1px solid #f0f0f0;
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  background: #fafafa;
+  background: var(--color-bg-subtle);
 }
 
 .sidebar-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: var(--space-4);
   font-weight: 600;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: var(--space-2);
 }
 
 .session-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   transition: background 0.2s;
 }
 
 .session-item:hover {
-  background: #e6f4ff;
+  background: var(--color-primary-bg);
 }
 
 .session-item.active {
-  background: #e6f4ff;
+  background: var(--color-primary-bg);
   font-weight: 500;
 }
 
@@ -394,7 +394,7 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .session-actions {
@@ -415,13 +415,13 @@ onMounted(async () => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: var(--space-6);
 }
 
 .message-row {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 
 .message-row.user {
@@ -436,18 +436,18 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 16px;
-  background: #f0f0f0;
+  font-size: var(--font-size-lg);
+  background: var(--color-border);
 }
 
 .message-row.user .message-avatar {
-  background: #1677ff;
+  background: var(--color-primary);
   color: #fff;
 }
 
 .message-row.assistant .message-avatar {
-  background: #f6ffed;
-  color: #52c41a;
+  background: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .message-content {
@@ -461,32 +461,32 @@ onMounted(async () => {
 
 .message-text {
   display: inline-block;
-  padding: 10px 16px;
-  border-radius: 12px;
-  background: #f5f5f5;
+  padding: 10px var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-muted);
   text-align: left;
   line-height: 1.6;
   word-break: break-word;
 }
 
 .message-row.user .message-text {
-  background: #1677ff;
+  background: var(--color-bg-chat-user);
   color: #fff;
 }
 
 .message-meta {
-  font-size: 12px;
-  color: #999;
-  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
 }
 
 .sources-section {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 .source-card {
-  padding: 8px 0;
-  border-bottom: 1px solid #f5f5f5;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-bg-muted);
 }
 
 .source-card:last-child {
@@ -495,38 +495,38 @@ onMounted(async () => {
 
 .source-header {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: #666;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }
 
 .source-element {
-  font-size: 13px;
-  color: #333;
-  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
 }
 
 .table-desc {
-  font-size: 12px;
-  color: #888;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
 }
 
 .filter-bar {
   display: flex;
-  gap: 12px;
-  padding: 8px 24px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-6);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
 }
 
 .chat-input {
   display: flex;
-  gap: 12px;
-  padding: 16px 24px;
-  border-top: 1px solid #f0f0f0;
-  background: #fff;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-base);
 }
 
 .chat-input .ant-input-textarea {

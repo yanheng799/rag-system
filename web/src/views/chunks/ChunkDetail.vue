@@ -10,15 +10,12 @@
           <a-button @click="cancelEdit">取消</a-button>
           <a-button type="primary" :loading="saving" @click="handleSave">保存</a-button>
         </template>
-        <a-popconfirm title="确定删除此分块？" @confirm="handleDelete">
-          <a-button danger>删除</a-button>
-        </a-popconfirm>
       </template>
     </a-page-header>
 
     <a-spin :spinning="loading">
       <template v-if="chunk">
-        <a-descriptions bordered size="small" :column="2" style="margin-bottom: 24px">
+        <a-descriptions bordered size="small" :column="2" style="margin-bottom: var(--space-6)">
           <a-descriptions-item label="文档 ID">{{ chunk.doc_id }}</a-descriptions-item>
           <a-descriptions-item label="类型">{{ chunk.chunk_type }}</a-descriptions-item>
           <a-descriptions-item label="页码">{{ chunk.page }}</a-descriptions-item>
@@ -147,15 +144,15 @@ onMounted(fetchChunk)
 
 <style scoped>
 .page-container {
-  padding: 0 24px 24px;
+  padding: 0 var(--space-6) var(--space-6);
 }
 
 .full-text-display {
-  background: #fafafa;
-  padding: 16px;
-  border-radius: 6px;
+  background: var(--color-bg-subtle);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
   line-height: 1.8;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   max-height: 600px;
   overflow-y: auto;
 }
@@ -163,7 +160,7 @@ onMounted(fetchChunk)
 .elements-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .element-content {
@@ -173,14 +170,14 @@ onMounted(fetchChunk)
 }
 
 .table-content {
-  font-size: 12px;
-  color: #888;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
   white-space: pre-wrap;
 }
 
 .image-list {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 </style>

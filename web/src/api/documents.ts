@@ -15,6 +15,7 @@ export interface DocumentStatusResponse {
   error_msg: string | null
   file_size: number | null
   file_type: string | null
+  chunk_count: number
   uploaded_at: string | null
   updated_at: string | null
 }
@@ -66,6 +67,7 @@ export interface DocumentListItem {
   error_msg: string | null
   file_size: number | null
   file_type: string | null
+  chunk_count: number
   uploaded_at: string | null
   updated_at: string | null
 }

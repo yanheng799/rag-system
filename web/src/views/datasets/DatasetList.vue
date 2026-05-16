@@ -7,7 +7,13 @@
       </a-button>
     </div>
 
-    <a-row :gutter="[16, 16]">
+    <a-row v-if="loading" :gutter="[16, 16]">
+      <a-col v-for="i in 4" :key="i" :xs="24" :sm="12" :md="8" :lg="6">
+        <a-card><a-skeleton active :paragraph="{ rows: 2 }" /></a-card>
+      </a-col>
+    </a-row>
+
+    <a-row v-else :gutter="[16, 16]">
       <a-col v-for="ds in datasets" :key="ds.dataset_id" :xs="24" :sm="12" :md="8" :lg="6">
         <a-card hoverable>
           <router-link :to="`/datasets/${ds.dataset_id}`" class="card-link" aria-label="打开知识库"></router-link>
@@ -20,7 +26,7 @@
           <a-card-meta :title="ds.name">
             <template #description>
               <div>{{ ds.description || '暂无描述' }}</div>
-              <div style="margin-top: 8px; color: #999; font-size: 12px">
+              <div style="margin-top: var(--space-2); color: var(--color-text-tertiary); font-size: var(--font-size-xs)">
                 {{ ds.doc_count }} 份文档 · {{ formatDate(ds.created_at) }}
               </div>
             </template>
@@ -47,11 +53,11 @@
       @ok="handleSubmit"
       :confirm-loading="submitting"
     >
-      <a-form layout="vertical">
-        <a-form-item label="名称" required>
+      <a-form layout="vertical" :model="form" :rules="formRules" ref="formRef">
+        <a-form-item label="名称" name="name">
           <a-input v-model:value="form.name" :maxlength="256" placeholder="请输入知识库名称…" name="name" autocomplete="off" />
         </a-form-item>
-        <a-form-item label="描述">
+        <a-form-item label="描述" name="description">
           <a-textarea v-model:value="form.description" :rows="3" placeholder="可选描述…" name="description" />
         </a-form-item>
       </a-form>
@@ -60,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, MessageOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import {
@@ -81,6 +87,11 @@ const showCreateModal = ref(false)
 const submitting = ref(false)
 const editingDataset = ref<DatasetResponse | null>(null)
 const form = ref({ name: '', description: '' })
+const formRef = ref()
+
+const formRules = {
+  name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
+}
 
 function formatDate(d: string | null) {
   if (!d) return ''
@@ -128,8 +139,9 @@ function confirmDelete(ds: DatasetResponse) {
 }
 
 async function handleSubmit() {
-  if (!form.value.name.trim()) {
-    message.warning('请输入名称')
+  try {
+    await formRef.value?.validateFields()
+  } catch {
     return
   }
   submitting.value = true
