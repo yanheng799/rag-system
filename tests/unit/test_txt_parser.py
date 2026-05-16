@@ -105,6 +105,32 @@ class TestTxTParserEdgeCases:
         finally:
             os.unlink(path)
 
+    def test_oversized_paragraph_split_by_lines(self, parser):
+        lines = [f"Line {i} with some content" for i in range(500)]
+        content = "\n".join(lines)
+        path = _write_tmp(content)
+        try:
+            elems = parser.parse(path)
+            assert len(elems) > 1
+            for e in elems:
+                assert len(e.content) <= 8192
+            # 内容不丢失
+            joined = "\n".join(e.content for e in elems)
+            assert joined == content
+        finally:
+            os.unlink(path)
+
+    def test_oversized_paragraph_no_blank_lines(self, parser):
+        content = "X" * 20000
+        path = _write_tmp(content)
+        try:
+            elems = parser.parse(path)
+            assert len(elems) >= 3
+            for e in elems:
+                assert len(e.content) <= 8192
+        finally:
+            os.unlink(path)
+
 
 class TestTxTParserEncoding:
     def test_utf8_with_bom(self, parser):
