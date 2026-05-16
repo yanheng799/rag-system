@@ -39,13 +39,19 @@ class FixedSizeChunker(BaseChunker):
         for elem in elements:
             elem_size = len(elem.content)
 
-            # 单个元素超限 → 单独成组
-            if elem_size > max_chunk_size and current:
-                gid = f"{doc_id}_g{group_counter}" if doc_id else f"g{group_counter}"
-                result.append((current, gid))
-                group_counter += 1
-                current = [elem]
-                current_size = elem_size
+            # 单个元素超限 → 拆分为多个子元素
+            if elem_size > max_chunk_size:
+                if current:
+                    gid = f"{doc_id}_g{group_counter}" if doc_id else f"g{group_counter}"
+                    result.append((current, gid))
+                    group_counter += 1
+                    current = []
+                    current_size = 0
+                sub_elems = _split_element(elem, max_chunk_size)
+                for sub in sub_elems:
+                    gid = f"{doc_id}_g{group_counter}" if doc_id else f"g{group_counter}"
+                    result.append(([sub], gid))
+                    group_counter += 1
                 continue
 
             if current_size + elem_size > max_chunk_size and current:
@@ -95,3 +101,24 @@ def _get_overlap_elements(group: list[ParsedElement], overlap_chars: int) -> lis
         if chars >= overlap_chars:
             break
     return overlap_elems
+
+
+def _split_element(elem: ParsedElement, max_size: int) -> list[ParsedElement]:
+    """将超大元素按字符数拆分为多个子元素，保持元数据不变。"""
+    content = elem.content
+    if len(content) <= max_size:
+        return [elem]
+
+    subs: list[ParsedElement] = []
+    for i in range(0, len(content), max_size):
+        chunk = content[i : i + max_size]
+        subs.append(
+            ParsedElement(
+                elem_type=elem.elem_type,
+                content=chunk,
+                page=elem.page,
+                bbox=elem.bbox,
+                style=elem.style.copy() if elem.style else {},
+            )
+        )
+    return subs

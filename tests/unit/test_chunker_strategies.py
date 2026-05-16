@@ -94,16 +94,18 @@ class TestFixedSizeChunker:
             second_ids = {id(e) for e in result[1][0]}
             assert first_ids & second_ids, "重叠组应共享部分元素"
 
-    def test_single_oversized_element_own_group(self):
+    def test_single_oversized_element_split(self):
         elems = [_elem("a" * 200), _elem("b" * 80)]
 
         result = self.chunker.chunk(
             elems, self.page_sizes, "doc1", max_chunk_size=100, min_chunk_size=0
         )
 
-        assert len(result) == 2
-        assert len(result[0][0]) == 1
-        assert result[0][0][0].content == "a" * 200
+        # 超大元素被拆分为多个子元素，每个不超过 max_chunk_size
+        assert len(result) >= 3
+        for group, gid in result:
+            size = sum(len(e.content) for e in group)
+            assert size <= 100
 
 
 class TestGetOverlapElements:
