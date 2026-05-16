@@ -80,41 +80,35 @@ async def upload_documents(
         existing_doc = await pg_store.get_document_by_hash(content_hash)
 
         if existing_doc:
-            # 重复文件 → 覆盖
-            doc_id = existing_doc.doc_id
-            raw_file_url = f"raw-docs/{doc_id}/{filename}"
-            oss_store.upload_raw_doc(doc_id, filename, file_data)
+            # 重复文件 → 拒绝上传，提示已有归属
+            existing_dataset = ""
+            if existing_doc.dataset_id:
+                ds = await pg_store.get_dataset(existing_doc.dataset_id)
+                if ds:
+                    existing_dataset = ds.name
+            detail = f"文档已存在: {existing_doc.filename}"
+            if existing_dataset:
+                detail += f"（已在知识库「{existing_dataset}」中）"
+            raise HTTPException(status_code=409, detail=detail)
 
-            from src.storage.milvus_store import MilvusStore
+        # 新文件
+        doc_id = generate_doc_id()
+        raw_file_url = f"raw-docs/{doc_id}/{filename}"
+        oss_store.upload_raw_doc(doc_id, filename, file_data)
 
-            if isinstance(request.app.state.milvus_store, MilvusStore):
-                request.app.state.milvus_store.delete_by_doc_id(doc_id)
-            await pg_store.delete_chunks_by_doc(doc_id)
-            await pg_store.update_document_for_reingest(
+        from src.models.documents import DocumentRecord
+
+        await pg_store.save_document(
+            DocumentRecord(
                 doc_id=doc_id,
+                dataset_id=dataset_id,
+                content_hash=content_hash,
                 filename=filename,
-                file_size=len(file_data),
                 raw_file_url=raw_file_url,
+                file_size=len(file_data),
+                file_type=ext,
             )
-        else:
-            # 新文件
-            doc_id = generate_doc_id()
-            raw_file_url = f"raw-docs/{doc_id}/{filename}"
-            oss_store.upload_raw_doc(doc_id, filename, file_data)
-
-            from src.models.documents import DocumentRecord
-
-            await pg_store.save_document(
-                DocumentRecord(
-                    doc_id=doc_id,
-                    dataset_id=dataset_id,
-                    content_hash=content_hash,
-                    filename=filename,
-                    raw_file_url=raw_file_url,
-                    file_size=len(file_data),
-                    file_type=ext,
-                )
-            )
+        )
 
         uploaded_at = __import__("datetime").datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         results.append(
