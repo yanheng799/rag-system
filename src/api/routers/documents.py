@@ -148,6 +148,7 @@ async def list_documents(
             file_size=r.file_size,
             file_type=r.file_type,
             chunk_count=r.chunk_count,
+            chunk_options=r.chunk_options,
             uploaded_at=r.uploaded_at.isoformat() if r.uploaded_at else None,
             updated_at=r.updated_at.isoformat() if r.updated_at else None,
         )
@@ -200,8 +201,9 @@ async def ingest_documents(request: Request, body: IngestRequest):
             milvus_store.delete_by_doc_id(doc_id)
             await pg_store.delete_chunks_by_doc(doc_id)
 
-        # 立即将状态设为 processing
-        await pg_store.update_status(doc_id, "processing")
+        # 立即将状态设为 processing，并记录分块参数
+        opts_dict = body.chunk_options.model_dump(exclude_none=True) if body.chunk_options else None
+        await pg_store.update_status(doc_id, "processing", chunk_options=opts_dict)
 
         # 创建后台解析任务
         chunk_opts = body.chunk_options
@@ -288,6 +290,7 @@ async def get_document_status(request: Request, doc_id: str):
         file_size=doc.file_size,
         file_type=doc.file_type,
         chunk_count=doc.chunk_count,
+        chunk_options=doc.chunk_options,
         uploaded_at=doc.uploaded_at.isoformat() if doc.uploaded_at else None,
         updated_at=doc.updated_at.isoformat() if doc.updated_at else None,
     )

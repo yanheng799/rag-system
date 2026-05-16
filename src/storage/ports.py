@@ -48,7 +48,7 @@ class DocumentStorePort(ABC):
         """保存文档记录"""
 
     @abstractmethod
-    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None) -> None:
+    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None, chunk_options: dict | None = None) -> None:
         """更新文档处理状态"""
 
     @abstractmethod

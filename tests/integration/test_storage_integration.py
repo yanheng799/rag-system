@@ -56,6 +56,67 @@ class TestPgStoreIntegration:
         assert result.status == "done"
 
     @pytest.mark.asyncio
+    async def test_update_status_with_chunk_options(self, pg_store):
+        from src.models.documents import DocumentRecord
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        doc = DocumentRecord(
+            doc_id=doc_id,
+            filename="test.pdf",
+            raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+        )
+        await pg_store.save_document(doc)
+
+        opts = {"strategy": "heading", "max_size": 2048}
+        await pg_store.update_status(doc_id, "processing", chunk_options=opts)
+
+        result = await pg_store.get_document(doc_id)
+        assert result.status == "processing"
+        assert result.chunk_options == {"strategy": "heading", "max_size": 2048}
+
+    @pytest.mark.asyncio
+    async def test_list_documents_returns_chunk_options(self, pg_store):
+        from src.models.documents import DocumentRecord
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
+        opts = {"strategy": "paragraph", "max_size": 1024, "vertical_gap": 20}
+        await pg_store.update_status(doc_id, "processing", chunk_options=opts)
+
+        records, _ = await pg_store.list_documents(size=100)
+        found = next((r for r in records if r.doc_id == doc_id), None)
+        assert found is not None
+        assert found.chunk_options == {"strategy": "paragraph", "max_size": 1024, "vertical_gap": 20}
+
+    @pytest.mark.asyncio
+    async def test_update_status_preserves_chunk_options(self, pg_store):
+        from src.models.documents import DocumentRecord
+
+        doc_id = f"test_{uuid.uuid4().hex[:8]}"
+        await pg_store.save_document(
+            DocumentRecord(
+                doc_id=doc_id,
+                filename="test.pdf",
+                raw_file_url=f"raw-docs/{doc_id}/test.pdf",
+            )
+        )
+        opts = {"strategy": "heading", "max_size": 2048}
+        await pg_store.update_status(doc_id, "processing", chunk_options=opts)
+
+        # 后续状态更新不传 chunk_options，已有值应保留
+        await pg_store.update_status(doc_id, "done")
+
+        result = await pg_store.get_document(doc_id)
+        assert result.status == "done"
+        assert result.chunk_options == {"strategy": "heading", "max_size": 2048}
+
+    @pytest.mark.asyncio
     async def test_save_chunk(self, pg_store):
         from src.models.documents import ChunkRecord
 

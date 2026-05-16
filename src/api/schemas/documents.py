@@ -21,6 +21,7 @@ class DocumentStatusResponse(BaseModel):
     file_size: int | None = None
     file_type: str | None = None
     chunk_count: int = 0
+    chunk_options: dict | None = None
     uploaded_at: str | None = None
     updated_at: str | None = None
 
@@ -57,6 +58,7 @@ class DocumentListItem(BaseModel):
     file_size: int | None = None
     file_type: str | None = None
     chunk_count: int = 0
+    chunk_options: dict | None = None
     uploaded_at: str | None = None
     updated_at: str | None = None
 

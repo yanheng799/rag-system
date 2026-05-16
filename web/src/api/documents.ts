@@ -16,6 +16,7 @@ export interface DocumentStatusResponse {
   file_size: number | null
   file_type: string | null
   chunk_count: number
+  chunk_options: Record<string, unknown> | null
   uploaded_at: string | null
   updated_at: string | null
 }
@@ -68,6 +69,7 @@ export interface DocumentListItem {
   file_size: number | null
   file_type: string | null
   chunk_count: number
+  chunk_options: Record<string, unknown> | null
   uploaded_at: string | null
   updated_at: string | null
 }

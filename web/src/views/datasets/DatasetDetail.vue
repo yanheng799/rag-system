@@ -110,8 +110,19 @@
         <template v-if="column.key === 'chunk_count'">
           <span>{{ record.chunk_count || '-' }}</span>
         </template>
+        <template v-if="column.key === 'chunk_options'">
+          <template v-if="record.chunk_options">
+            <a-tag size="small">{{ strategyLabel(record.chunk_options.strategy) }}</a-tag>
+            <a-tooltip :title="formatChunkParamsFull(record.chunk_options)">
+              <span class="chunk-params-text">{{ formatChunkParams(record.chunk_options) }}</span>
+            </a-tooltip>
+          </template>
+          <span v-else>-</span>
+        </template>
         <template v-if="column.key === 'error_msg'">
-          <span v-if="record.error_msg" class="error-text">{{ record.error_msg }}</span>
+          <a-tooltip v-if="record.error_msg" :title="record.error_msg">
+            <span class="error-text">{{ record.error_msg }}</span>
+          </a-tooltip>
           <span v-else>-</span>
         </template>
         <template v-if="column.key === 'action'">
@@ -225,9 +236,10 @@ const columns = [
   { title: '文件名', dataIndex: 'filename', key: 'filename' },
   { title: '类型', key: 'file_type', width: 70 },
   { title: '大小', key: 'file_size', width: 90 },
-  { title: '分块', key: 'chunk_count', width: 70 },
-  { title: '状态', key: 'status', width: 100 },
-  { title: '错误信息', key: 'error_msg', ellipsis: true },
+  { title: '分块', key: 'chunk_count', width: 60 },
+  { title: '策略', key: 'chunk_options', width: 180 },
+  { title: '状态', key: 'status', width: 80 },
+  { title: '错误信息', key: 'error_msg', width: 160, ellipsis: true },
   { title: '操作', key: 'action', width: 260 },
 ]
 
@@ -236,6 +248,32 @@ function formatFileSize(bytes: number | null): string {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const strategyLabels: Record<string, string> = {
+  paragraph: '段落', heading: '标题', fixed_size: '固定', page: '逐页', qa: 'QA',
+}
+
+function strategyLabel(s: unknown) {
+  return strategyLabels[s as string] || (s as string) || '-'
+}
+
+function formatChunkParams(opts: Record<string, unknown>): string {
+  const parts: string[] = []
+  if (opts.max_size) parts.push(`最大${opts.max_size}`)
+  if (opts.min_size) parts.push(`最小${opts.min_size}`)
+  if (opts.overlap) parts.push(`重叠${opts.overlap}`)
+  if (opts.vertical_gap) parts.push(`间距${opts.vertical_gap}`)
+  return parts.join(' / ')
+}
+
+function formatChunkParamsFull(opts: Record<string, unknown>): string {
+  const lines = [`策略: ${strategyLabels[opts.strategy as string] || opts.strategy}`]
+  if (opts.max_size) lines.push(`最大分块: ${opts.max_size} 字符`)
+  if (opts.min_size) lines.push(`最小分块: ${opts.min_size} 字符`)
+  if (opts.overlap) lines.push(`重叠字符: ${opts.overlap}`)
+  if (opts.vertical_gap) lines.push(`垂直间距: ${opts.vertical_gap}px`)
+  return lines.join('\n')
 }
 
 function statusColor(s: string) {
@@ -266,6 +304,7 @@ async function fetchDocs() {
       file_size: d.file_size,
       file_type: d.file_type,
       chunk_count: d.chunk_count,
+      chunk_options: d.chunk_options,
       uploaded_at: d.uploaded_at,
       updated_at: d.updated_at,
     }))
@@ -303,6 +342,7 @@ async function handleUpload(options: { file: File; onSuccess?: () => void; onErr
         file_size: options.file.size,
         file_type: options.file.name.split('.').pop() || null,
         chunk_count: 0,
+        chunk_options: null,
         uploaded_at: u.uploaded_at,
         updated_at: null,
       })
@@ -501,6 +541,16 @@ onUnmounted(stopPolling)
 
 .error-text {
   color: var(--color-error);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 140px;
+}
+
+.chunk-params-text {
+  color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
 }
 

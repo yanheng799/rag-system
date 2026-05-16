@@ -38,9 +38,12 @@ class PgStore(DocumentStorePort):
             session.add(orm)
             await session.commit()
 
-    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None) -> None:
+    async def update_status(self, doc_id: str, status: str, error_msg: str | None = None, chunk_options: dict | None = None) -> None:
         async with self._session_factory() as session:
-            stmt = update(DocumentORM).where(DocumentORM.doc_id == doc_id).values(status=status, error_msg=error_msg)
+            values = {"status": status, "error_msg": error_msg}
+            if chunk_options is not None:
+                values["chunk_options"] = chunk_options
+            stmt = update(DocumentORM).where(DocumentORM.doc_id == doc_id).values(**values)
             await session.execute(stmt)
             await session.commit()
 
@@ -69,6 +72,7 @@ class PgStore(DocumentStorePort):
                 uploaded_at=orm.uploaded_at,
                 updated_at=orm.updated_at,
                 chunk_count=chunk_count,
+                chunk_options=orm.chunk_options,
             )
 
     async def get_document_by_hash(self, content_hash: str) -> DocumentRecord | None:
@@ -152,6 +156,7 @@ class PgStore(DocumentStorePort):
                     uploaded_at=r.uploaded_at,
                     updated_at=r.updated_at,
                     chunk_count=chunk_counts.get(r.doc_id, 0),
+                    chunk_options=r.chunk_options,
                 )
                 for r in rows
             ]
