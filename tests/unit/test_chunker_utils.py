@@ -156,22 +156,27 @@ class TestSplitGroupBySizeEdgeCases:
                 non_title = [e for e in elems if not e.is_title]
                 assert len(non_title) > 0, f"标题组不应孤立: {[e.content for e in elems]}"
 
-    def test_table_caption_protection(self):
+    def test_table_caption_stays_with_table(self):
+        """表格标题应随表格一起进入新分组，不被切分到不同 chunk"""
         groups = [[
-            _elem("a" * 60),
-            _elem("表1 说明文字"),
-            _elem("表格内容数据", elem_type="table"),
-            _elem("b" * 60),
+            _elem("a" * 75),
+            _elem("表1 描述"),
+            _elem("表格数据", elem_type="table"),
+            _elem("b" * 75),
         ]]
 
         result = split_oversized_groups(groups, max_chunk_size=80, doc_id="d")
 
-        for elems, gid in result:
-            tables = [i for i, e in enumerate(elems) if e.is_table]
-            for t_idx in tables:
-                if t_idx > 0:
-                    prev = elems[t_idx - 1]
-                    assert prev.content != "表1 说明文字" or True
+        # 找到包含表格的分组
+        table_group = None
+        for elems, _ in result:
+            if any(e.is_table for e in elems):
+                table_group = elems
+                break
+        assert table_group is not None
+        table_idx = next(i for i, e in enumerate(table_group) if e.is_table)
+        assert table_idx > 0, "表格元素前应有标题文字"
+        assert "描述" in table_group[table_idx - 1].content
 
     def test_single_oversized_element_standalone(self):
         groups = [[

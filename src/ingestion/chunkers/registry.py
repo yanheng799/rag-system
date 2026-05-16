@@ -37,6 +37,11 @@ class ChunkerRegistry:
     def available_strategies(cls) -> list[str]:
         return list(cls._chunkers.keys())
 
+    @classmethod
+    def reset(cls) -> None:
+        """清空已注册的分块策略（主要用于测试隔离）"""
+        cls._chunkers.clear()
+
 
 def init_chunkers() -> None:
     """初始化并注册所有分块策略"""

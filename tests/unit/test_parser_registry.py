@@ -12,7 +12,7 @@ from src.ingestion.parsers.word_parser import WordParser
 class TestParserRegistry:
     def setup_method(self):
         # 每次测试前清空注册表
-        ParserRegistry._parsers.clear()
+        ParserRegistry.reset()
         init_parsers()
 
     def test_supported_types(self):

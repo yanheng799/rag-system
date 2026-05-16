@@ -271,7 +271,7 @@ class TestChunkerRegistry:
     """分块策略注册表"""
 
     def setup_method(self):
-        ChunkerRegistry._chunkers.clear()
+        ChunkerRegistry.reset()
 
     def test_register_and_get(self):
         chunker = FixedSizeChunker()

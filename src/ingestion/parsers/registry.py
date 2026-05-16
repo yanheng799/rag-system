@@ -51,6 +51,11 @@ class ParserRegistry:
         """返回所有支持的文件类型"""
         return list(cls._parsers.keys())
 
+    @classmethod
+    def reset(cls) -> None:
+        """清空已注册的解析器（主要用于测试隔离）"""
+        cls._parsers.clear()
+
 
 def init_parsers() -> None:
     """初始化并注册所有解析器"""
