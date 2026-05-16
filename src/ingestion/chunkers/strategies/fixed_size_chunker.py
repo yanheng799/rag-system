@@ -47,7 +47,7 @@ class FixedSizeChunker(BaseChunker):
                     group_counter += 1
                     current = []
                     current_size = 0
-                sub_elems = _split_element(elem, max_chunk_size)
+                sub_elems = _split_element(elem, max_chunk_size, overlap)
                 for sub in sub_elems:
                     gid = f"{doc_id}_g{group_counter}" if doc_id else f"g{group_counter}"
                     result.append(([sub], gid))
@@ -103,14 +103,16 @@ def _get_overlap_elements(group: list[ParsedElement], overlap_chars: int) -> lis
     return overlap_elems
 
 
-def _split_element(elem: ParsedElement, max_size: int) -> list[ParsedElement]:
-    """将超大元素按字符数拆分为多个子元素，保持元数据不变。"""
+def _split_element(elem: ParsedElement, max_size: int, overlap: int = 0) -> list[ParsedElement]:
+    """将超大元素按字符数拆分为多个子元素，支持 overlap。"""
     content = elem.content
     if len(content) <= max_size:
         return [elem]
 
+    step = max(max_size - overlap, 1)
     subs: list[ParsedElement] = []
-    for i in range(0, len(content), max_size):
+    i = 0
+    while i < len(content):
         chunk = content[i : i + max_size]
         subs.append(
             ParsedElement(
@@ -121,4 +123,6 @@ def _split_element(elem: ParsedElement, max_size: int) -> list[ParsedElement]:
                 style=elem.style.copy() if elem.style else {},
             )
         )
+        i += step
+
     return subs
