@@ -183,7 +183,7 @@ async def ingest_documents(request: Request, body: IngestRequest):
             results.append(IngestResult(doc_id=doc_id, filename="", status="failed", error_msg="文档不存在"))
             continue
 
-        if doc.status not in ("pending", "failed"):
+        if doc.status not in ("pending", "failed", "done"):
             results.append(
                 IngestResult(
                     doc_id=doc_id,
@@ -193,6 +193,11 @@ async def ingest_documents(request: Request, body: IngestRequest):
                 )
             )
             continue
+
+        # 已解析的文档需要先清理旧分块和向量
+        if doc.status == "done":
+            milvus_store.delete_by_doc_id(doc_id)
+            await pg_store.delete_chunks_by_doc(doc_id)
 
         # 立即将状态设为 processing
         await pg_store.update_status(doc_id, "processing")

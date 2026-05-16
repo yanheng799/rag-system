@@ -106,6 +106,7 @@
             <router-link v-if="record.status === 'done'" :to="{ path: '/retrieve', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">检索</router-link>
             <router-link v-if="record.status === 'done'" :to="`/documents/${record.doc_id}/chunks`">查看分块</router-link>
             <a-button v-if="record.status === 'failed'" type="link" size="small" @click="retryDoc(record.doc_id)">重试</a-button>
+            <a-button v-if="record.status === 'done'" type="link" size="small" @click="retryDoc(record.doc_id)">重新解析</a-button>
             <a-popconfirm title="确定删除？" @confirm="handleDeleteDoc(record.doc_id)">
               <a-button type="link" danger size="small">删除</a-button>
             </a-popconfirm>
@@ -167,7 +168,7 @@ const strategyDesc = computed(() => ({
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const selectableStatuses = new Set(['pending', 'failed', 'accepted'])
+const selectableStatuses = new Set(['pending', 'failed', 'accepted', 'done'])
 
 const rowSelection = computed(() => ({
   selectedRowKeys: selectedPending.value,
