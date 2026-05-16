@@ -118,10 +118,10 @@
               </router-link>
             </a-tooltip>
             <a-tooltip v-if="record.status === 'done'" title="重新解析">
-              <a-button type="text" size="small" @click="retryDoc(record.doc_id)"><RedoOutlined /></a-button>
+              <a-button type="text" size="small" @click="confirmReparse(record)"><RedoOutlined /></a-button>
             </a-tooltip>
             <a-tooltip v-if="record.status === 'failed'" title="重试解析">
-              <a-button type="text" size="small" @click="retryDoc(record.doc_id)"><RedoOutlined /></a-button>
+              <a-button type="text" size="small" @click="confirmReparse(record)"><RedoOutlined /></a-button>
             </a-tooltip>
             <a-tooltip title="删除">
               <a-popconfirm title="确定删除？" @confirm="handleDeleteDoc(record.doc_id)">
@@ -323,6 +323,29 @@ async function retryDoc(docId: string) {
   } catch (e: unknown) {
     message.error((e as Error).message)
   }
+}
+
+function confirmReparse(record: DocumentStatusResponse) {
+  const strategyName: Record<string, string> = {
+    paragraph: '按段落', heading: '按标题', fixed_size: '固定大小', page: '按页码', qa: '逐行(QA)',
+  }
+  const s = chunkForm.value.strategy
+  const lines = [`策略: ${strategyName[s] || s}`]
+  if (chunkForm.value.max_size != null) lines.push(`最大分块: ${chunkForm.value.max_size} 字符`)
+  if (chunkForm.value.min_size != null) lines.push(`最小分块: ${chunkForm.value.min_size} 字符`)
+  if (chunkForm.value.overlap != null) lines.push(`重叠字符: ${chunkForm.value.overlap}`)
+  if (chunkForm.value.vertical_gap != null) lines.push(`垂直间距: ${chunkForm.value.vertical_gap}`)
+  const isRedo = record.status === 'done'
+  Modal.confirm({
+    title: isRedo ? `重新解析「${record.filename}」？` : `重试解析「${record.filename}」？`,
+    content: isRedo
+      ? `将清除现有分块和向量，使用以下参数重新解析：\n${lines.join('\n')}`
+      : `使用以下参数重新解析：\n${lines.join('\n')}`,
+    okText: '确认解析',
+    async onOk() {
+      await retryDoc(record.doc_id)
+    },
+  })
 }
 
 async function handleDeleteDoc(docId: string) {
