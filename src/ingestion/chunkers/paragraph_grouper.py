@@ -18,6 +18,8 @@ DEFAULT_MAX_CHUNK_SIZE = 1024
 DEFAULT_INDENT_THRESHOLD = 10.0
 # 段末右边界阈值（像素），行尾距右边界超过此值视为段末短行
 DEFAULT_RIGHT_MARGIN_THRESHOLD = 30.0
+# ParagraphGrouper fallback: 标题级别阈值，heading_level <= 此值时视为段落边界
+DEFAULT_HEADING_LEVEL_THRESHOLD = 3
 
 
 def is_heading_element(elem: ParsedElement) -> bool:
@@ -25,6 +27,42 @@ def is_heading_element(elem: ParsedElement) -> bool:
     if elem.is_title:
         return True
     return is_heading_by_pattern(elem.content)
+
+
+def _is_zero_bbox_elements(elements: list[ParsedElement]) -> bool:
+    """检测所有元素是否为零 bbox（TXT/Markdown/CSV 场景）。"""
+    return all(e.bbox == (0, 0, 0, 0) for e in elements) if elements else False
+
+
+def is_new_paragraph_boundary_fallback(
+    elem: ParsedElement,
+    group: list[ParsedElement],
+    heading_level_threshold: int = DEFAULT_HEADING_LEVEL_THRESHOLD,
+) -> bool:
+    """零 bbox 元素的段落边界判断（fallback 模式）。
+
+    边界信号：
+    1. 空 group → 新段落
+    2. 标题元素 + heading_level ≤ 阈值 → 新段落
+    3. paragraph_break 标记 → 新段落
+
+    注意：不检查 elem_type 变化。Markdown 中标题间的文字、列表、代码块
+    天然属于同一章节，类型交替不应触发拆分。
+    """
+    if not group:
+        return True
+
+    # 标题元素：heading_level ≤ 阈值时为新段落
+    if elem.is_title:
+        level = elem.style.get("heading_level", 1)
+        if level <= heading_level_threshold:
+            return True
+
+    # paragraph_break 标记
+    if elem.style.get("paragraph_break"):
+        return True
+
+    return False
 
 
 def is_new_paragraph_boundary(
@@ -122,6 +160,12 @@ def group_elements_by_paragraph(
     if not elements:
         return []
 
+    # 检测零 bbox 元素（TXT/Markdown/CSV），使用 fallback 模式
+    use_fallback = _is_zero_bbox_elements(elements)
+
+    if use_fallback:
+        return _group_by_fallback(elements, max_chunk_size, doc_id)
+
     # 自适应行距检测：如果典型行距大于配置阈值，自动提高阈值
     effective_gap_threshold = vertical_gap_threshold
     dominant_gap = _detect_dominant_line_spacing(elements)
@@ -161,6 +205,47 @@ def group_elements_by_paragraph(
     if max_chunk_size > 0:
         result = _split_oversized_groups(paragraphs, max_chunk_size, doc_id)
         logger.info("超长拆分后: %d 个段落组", len(result))
+        return result
+
+    return [(p, "") for p in paragraphs]
+
+
+def _group_by_fallback(
+    elements: list[ParsedElement],
+    max_chunk_size: int = DEFAULT_MAX_CHUNK_SIZE,
+    doc_id: str = "",
+) -> list[tuple[list[ParsedElement], str]]:
+    """零 bbox 元素的 fallback 分组逻辑。
+
+    使用 elem_type 变化、paragraph_break 标记、heading_level 阈值判断边界。
+    """
+    paragraphs: list[list[ParsedElement]] = []
+    current_group: list[ParsedElement] = []
+
+    for elem in elements:
+        if is_new_paragraph_boundary_fallback(elem, current_group):
+            if current_group:
+                paragraphs.append(current_group)
+            current_group = [elem]
+        else:
+            current_group.append(elem)
+
+    if current_group:
+        paragraphs.append(current_group)
+
+    logger.info(
+        "Fallback 段落边界识别: %d 个元素 → %d 个段落组",
+        len(elements),
+        len(paragraphs),
+    )
+
+    # 孤立标题合并
+    paragraphs = _merge_heading_only_groups(paragraphs)
+
+    # 超长分组拆分
+    if max_chunk_size > 0:
+        result = _split_oversized_groups(paragraphs, max_chunk_size, doc_id)
+        logger.info("Fallback 超长拆分后: %d 个段落组", len(result))
         return result
 
     return [(p, "") for p in paragraphs]

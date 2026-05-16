@@ -25,7 +25,7 @@ class DocumentStatusResponse(BaseModel):
 
 
 class ChunkOptions(BaseModel):
-    strategy: str | None = Field(default=None, description="分块策略: paragraph / heading / fixed_size / page")
+    strategy: str | None = Field(default=None, description="分块策略: paragraph / heading / fixed_size / page / qa")
     max_size: int | None = Field(default=None, description="最大分块字符数")
     min_size: int | None = Field(default=None, description="最小分块字符数（低于此值合并）")
     overlap: int | None = Field(default=None, description="固定大小策略的 overlap 字符数")

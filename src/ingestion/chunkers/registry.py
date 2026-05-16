@@ -10,10 +10,11 @@ from src.ingestion.chunkers.strategies.fixed_size_chunker import FixedSizeChunke
 from src.ingestion.chunkers.strategies.heading_chunker import HeadingChunker
 from src.ingestion.chunkers.strategies.page_chunker import PageChunker
 from src.ingestion.chunkers.strategies.paragraph_chunker import ParagraphChunker
+from src.ingestion.chunkers.strategies.qa_chunker import QaChunker
 
 logger = logging.getLogger(__name__)
 
-_VALID_STRATEGIES = {"paragraph", "heading", "fixed_size", "page"}
+_VALID_STRATEGIES = {"paragraph", "heading", "fixed_size", "page", "qa"}
 
 
 class ChunkerRegistry:
@@ -43,3 +44,4 @@ def init_chunkers() -> None:
     ChunkerRegistry.register("heading", HeadingChunker())
     ChunkerRegistry.register("fixed_size", FixedSizeChunker())
     ChunkerRegistry.register("page", PageChunker())
+    ChunkerRegistry.register("qa", QaChunker())

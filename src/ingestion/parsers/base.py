@@ -58,3 +58,46 @@ class ParseError(Exception):
         super().__init__(f"文档解析失败: {file_path} - {detail}")
         self.file_path = file_path
         self.detail = detail
+
+
+def format_rows(headers: list[str], rows: list[list[str]], sheet_name: str = "") -> str:
+    """将行列数据格式化为自然语言描述（共享函数）。
+
+    Args:
+        headers: 列名列表
+        rows: 数据行列表，每行为字符串列表
+        sheet_name: 可选的工作表名称前缀
+
+    Returns:
+        格式化后的文本，格式如 "工作表: X\\n表头: A | B\\n列A: val1; 列B: val2"
+    """
+    lines: list[str] = []
+    if sheet_name:
+        lines.append(f"工作表: {sheet_name}")
+    lines.append(f"表头: {' | '.join(headers)}")
+
+    for row in rows:
+        parts = []
+        for idx, (header, value) in enumerate(zip(headers, row, strict=False)):
+            if value.strip():
+                col_name = header.strip() if header.strip() else f"列{idx + 1}"
+                parts.append(f"{col_name}: {value.strip()}")
+        if parts:
+            lines.append("; ".join(parts))
+
+    return "\n".join(lines)
+
+
+def read_text_file(file_path: str) -> str:
+    """读取文本文件，自动探测编码。
+
+    级联尝试: utf-8-sig → utf-8 → gbk → latin-1
+    utf-8-sig 自动剥离 BOM，gbk 覆盖中文 Windows 常见编码。
+    """
+    for enc in ("utf-8-sig", "utf-8", "gbk", "latin-1"):
+        try:
+            with open(file_path, encoding=enc) as f:
+                return f.read()
+        except (UnicodeDecodeError, ValueError):
+            continue
+    raise ParseError(file_path, "无法识别文件编码")

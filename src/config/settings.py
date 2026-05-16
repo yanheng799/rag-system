@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     # 摄入配置
     max_file_size_mb: int = Field(default=50, description="上传文件大小限制（MB）")
     supported_file_types: list[str] = Field(
-        default=["pdf", "docx", "xlsx"],
-        description="Phase 1 支持的文件类型",
+        default=["pdf", "docx", "xlsx", "txt", "md", "csv"],
+        description="支持的文件类型",
     )
 
     # 分块配置

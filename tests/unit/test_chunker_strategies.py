@@ -299,7 +299,8 @@ class TestChunkerRegistry:
         assert "heading" in strategies
         assert "fixed_size" in strategies
         assert "page" in strategies
-        assert len(strategies) == 4
+        assert "qa" in strategies
+        assert len(strategies) == 5
 
     def test_init_chunkers_returns_correct_types(self):
         init_chunkers()

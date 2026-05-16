@@ -10,8 +10,11 @@ from src.ingestion.parsers.base import (
     BaseParser,
     UnsupportedFileTypeError,
 )
+from src.ingestion.parsers.csv_parser import CsvParser
 from src.ingestion.parsers.excel_parser import ExcelParser
+from src.ingestion.parsers.markdown_parser import MarkdownParser
 from src.ingestion.parsers.pdf_parser import PDFParser
+from src.ingestion.parsers.txt_parser import TxTParser
 from src.ingestion.parsers.word_parser import WordParser
 
 logger = logging.getLogger(__name__)
@@ -50,7 +53,10 @@ class ParserRegistry:
 
 
 def init_parsers() -> None:
-    """初始化并注册所有 Phase 1 解析器"""
+    """初始化并注册所有解析器"""
     ParserRegistry.register(PDFParser())
     ParserRegistry.register(WordParser())
     ParserRegistry.register(ExcelParser())
+    ParserRegistry.register(TxTParser())
+    ParserRegistry.register(MarkdownParser())
+    ParserRegistry.register(CsvParser())

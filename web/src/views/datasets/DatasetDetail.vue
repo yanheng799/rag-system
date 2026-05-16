@@ -13,14 +13,14 @@
 
     <a-upload-dragger
       :multiple="true"
-      accept=".pdf,.docx,.xlsx"
+      accept=".pdf,.docx,.xlsx,.txt,.md,.csv"
       :custom-request="handleUpload"
       :show-upload-list="false"
       :disabled="uploading"
     >
       <p class="ant-upload-drag-icon"><inbox-outlined aria-hidden="true" /></p>
       <p class="ant-upload-text">拖拽文件到此处，或点击上传</p>
-      <p class="ant-upload-hint">支持 PDF、Word (.docx)、Excel (.xlsx)，单文件最大 50MB</p>
+      <p class="ant-upload-hint">支持 PDF、Word (.docx)、Excel (.xlsx)、TXT、Markdown (.md)、CSV，单文件最大 50MB</p>
     </a-upload-dragger>
 
     <a-spin :spinning="uploading" tip="上传中…">
@@ -37,6 +37,7 @@
         <a-radio-button value="heading">标题分块</a-radio-button>
         <a-radio-button value="fixed_size">固定大小</a-radio-button>
         <a-radio-button value="page">逐页分块</a-radio-button>
+        <a-radio-button value="qa">QA 分块</a-radio-button>
       </a-radio-group>
       <p style="margin: 8px 0; color: #888; font-size: 13px">{{ strategyDesc }}</p>
       <a-collapse ghost>
@@ -161,6 +162,7 @@ const strategyDesc = computed(() => ({
   heading: '按标题章节边界分块，适合技术文档、法规文件（PDF/Word 推荐）',
   fixed_size: '按固定字符数切割，适合通用场景',
   page: '按页码分块，适合表格密集文档（Excel 推荐）',
+  qa: '逐行分块，适合 CSV/Excel 问答对、知识条目',
 }[chunkForm.value.strategy] || ''))
 
 let pollTimer: ReturnType<typeof setInterval> | null = null

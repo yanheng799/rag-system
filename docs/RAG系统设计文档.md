@@ -1,6 +1,6 @@
 # RAG 系统整体设计文档
 
-> 版本：v1.9 | 状态：Phase 2 开发中
+> 版本：v2.0 | 状态：Phase 2 开发中
 
 ---
 
@@ -19,8 +19,8 @@
 
 ### 2.1 数据摄入
 
-- 支持多格式文档解析：PDF、Word (.docx)、Excel (.xlsx)，各格式有独立 Parser 实现，通过插件注册表统一管理。旧格式 (.doc, .xls) 及 HTML/Markdown 支持推迟到后续 Phase
-- 智能分块：按语义段落边界切割，保持段落内文字与表格的整体性。支持 4 种分块策略（段落/标题/固定大小/逐页），通过 API 参数在文档解析时选择
+- 支持多格式文档解析：PDF、Word (.docx)、Excel (.xlsx)、TXT 纯文本、Markdown (.md)、CSV，各格式有独立 Parser 实现，通过插件注册表统一管理。旧格式 (.doc, .xls) 及 HTML 支持推迟到后续 Phase
+- 智能分块：按语义段落边界切割，保持段落内文字与表格的整体性。支持 5 种分块策略（段落/标题/固定大小/逐页/QA），通过 API 参数在文档解析时选择
 - 元数据提取：来源、时间、作者、章节等自动提取
 - Phase 1 同步摄入，Phase 4 引入 Celery 异步任务队列，支持失败自动重试（最多 3 次），超限后进入死信队列并告警
 - **混合块支持**：同一段落内的文字与表格作为一个整体分块，召回时文字描述与表格截图一并返回
@@ -95,7 +95,7 @@
 ├─────────────────────────────────────┤
 │         存储索引层 (Storage)          │  Milvus + PostgreSQL + 对象存储
 ├─────────────────────────────────────┤
-│         数据摄入层 (Ingestion)        │  pymupdf + python-docx + openpyxl + 混合块处理
+│         数据摄入层 (Ingestion)        │  pymupdf + python-docx + openpyxl + 标准库(TXT/MD/CSV) + 混合块处理
 └─────────────────────────────────────┘
 ```
 
@@ -139,7 +139,7 @@ def group_elements_by_paragraph(elements):
 
 #### 3.2.2 分块策略
 
-系统支持 4 种分块策略，通过 API 参数 `chunk_options.strategy` 在文档解析时选择。未指定时默认使用 `paragraph` 策略。
+系统支持 5 种分块策略，通过 API 参数 `chunk_options.strategy` 在文档解析时选择。未指定时默认使用 `paragraph` 策略。
 
 | 策略 | 名称 | 适用场景 | 核心逻辑 |
 |------|------|---------|---------|
@@ -147,6 +147,7 @@ def group_elements_by_paragraph(elements):
 | 标题分块 | `heading` | 技术文档、法规文件 | 仅按标题（章节）边界拆分，保持章节完整 |
 | 固定大小 | `fixed_size` | 通用兜底、需要均匀分块 | 按 `max_size` 滑窗切割，支持 `overlap` 重叠 |
 | 逐页分块 | `page` | 表格密集文档、每页独立 | 每页元素聚合为一组，超限按大小拆分 |
+| QA 分块 | `qa` | CSV/Excel 问答对、知识条目 | 每行一个 chunk，适用于逐行检索场景 |
 
 **API 请求参数**（`POST /api/v1/documents/ingest`）：
 
@@ -165,7 +166,7 @@ def group_elements_by_paragraph(elements):
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `strategy` | string | `"paragraph"` | 分块策略：`paragraph` / `heading` / `fixed_size` / `page` |
+| `strategy` | string | `"paragraph"` | 分块策略：`paragraph` / `heading` / `fixed_size` / `page` / `qa` |
 | `max_size` | int | `1024` | 单个分块最大字符数 |
 | `min_size` | int | `50` | 分块最小字符数，低于此值与相邻分块合并 |
 | `overlap` | int | `0` | 固定大小策略的重叠字符数 |
@@ -226,6 +227,31 @@ def group_elements_by_paragraph(elements):
 
 适合表格密集的工程文档（如杆塔明细表），每页内容相对独立。
 
+**qa（QA 分块）**：
+
+```
+遍历扁平 Element 列表：
+1. table 元素：从 raw["rows"] 逐行拆分，每行生成一个独立 chunk
+   - 复用 format_rows(headers, [row]) 格式化为"列名:值"格式
+   - Excel 单行 chunk 的 full_text 前缀加"工作表: {sheet_name}\n"（自包含上下文）
+2. 非 table 元素（title 等）：保留为独立 chunk，不丢弃
+3. 每行 chunk 的 chunk_id 格式沿用 {doc_id}_p{page}_c{index}
+```
+
+适合 CSV/Excel 问答对场景（FAQ 库、知识条目），每行作为一个独立检索单元，实现精准的逐条召回。
+
+**ParagraphGrouper fallback（纯文本文档兼容）**：
+
+TXT、Markdown、CSV 解析器产出的所有 ParsedElement 的 bbox 均为 `(0,0,0,0)`，无法使用基于坐标的段落边界检测。ParagraphGrouper 在检测到所有元素 bbox 为零时，自动进入 fallback 模式：
+
+```
+Fallback 边界信号（替代 bbox 坐标判断）：
+1. elem_type="title" + style["heading_level"] ≤ 阈值（默认 3）→ 断开
+2. style={"paragraph_break": true} → 断开（TXT 空行处标记）
+3. elem_type 类型变化（text → table、list_item → text 等）→ 断开
+4. 其余相邻 text 元素由 merge_small_chunks 按 min_chunk_size 保守合并
+```
+
 **分块器接口设计**：
 
 ```python
@@ -257,14 +283,15 @@ class ChunkerRegistry:
 - `"heading"` → HeadingChunker
 - `"fixed_size"` → FixedSizeChunker
 - `"page"` → PageChunker
+- `"qa"` → QaChunker
 
 #### 3.2.3 完整摄入流程
 
 ```
-原始文档（PDF / Word）
+原始文档（PDF / Word / Excel / TXT / Markdown / CSV）
         │
         ▼
-[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表（文字、表格、图片交替）
+[pymupdf / python-docx / openpyxl / 标准库 解析]  →  扁平 Element 列表（文字、表格、图片交替）
         │
         ▼
 [段落边界识别]  →  按坐标 + 语义将 Elements 聚合为段落组
@@ -380,7 +407,7 @@ MixedChunk(
 |----------|------|---------|
 | 向量数据库 | Milvus | Embedding 向量 + elements/metadata JSON |
 | 文档数据库 | PostgreSQL | 文档管理信息、完整分块记录、查询日志 |
-| 对象存储 | MinIO / S3 | **原始文档文件**（PDF、Word、Excel 原件）+ 表格截图 + 文档图片 |
+| 对象存储 | MinIO / S3 | **原始文档文件**（PDF、Word、Excel、TXT、Markdown、CSV 原件）+ 表格截图 + 文档图片 |
 | 缓存层 | Redis | Phase 4 引入：查询结果缓存、Embedding 缓存、Celery Broker |
 | 任务队列 | Celery + Redis | Phase 4 引入：异步摄入任务调度、失败重试（最多 3 次）、死信队列 |
 
@@ -434,7 +461,7 @@ CREATE TABLE documents (
     filename      VARCHAR(512)  NOT NULL,
     raw_file_url  VARCHAR(1024) NOT NULL,          -- 原始文件在 OSS 的内部路径（非签名URL）
     file_size     BIGINT,                          -- 文件大小（字节）
-    file_type     VARCHAR(16),                     -- pdf | docx | xlsx
+    file_type     VARCHAR(16),                     -- pdf | docx | xlsx | txt | md | csv
     status        VARCHAR(16)   NOT NULL DEFAULT 'pending',
                                                    -- pending | processing | done | failed
     error_msg     TEXT,                            -- 失败时记录错误信息
@@ -756,6 +783,9 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 | 文档解析（PDF） | pymupdf (fitz) | 快速、精确的文字+坐标+表格提取 |
 | 文档解析（Word） | python-docx | 直接访问 .docx 表格结构，含合并单元格信息 |
 | 文档解析（Excel） | openpyxl | 电力工程 Excel 数据文件（铁塔统计、杆塔明细表等） |
+| 文档解析（TXT） | Python 标准库 | 纯文本文件，按空行分段落解析 |
+| 文档解析（Markdown） | Python 标准库 | 识别标题/列表/代码块/表格结构 |
+| 文档解析（CSV） | Python 标准库 csv | 逗号/Tab 分隔数据，复用 Excel 的行格式化逻辑 |
 | 段落聚合 | 自研 | 基于坐标 + 语义的段落边界识别 |
 | 表格截图（PDF） | pymupdf + Pillow | 渲染页面后裁剪表格区域 |
 | 表格截图（Word） | python-docx → pymupdf（转 PDF 后截图） | 转 PDF 后统一截图流程 |
@@ -791,6 +821,33 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 - 电力工程领域大量 Excel 数据（铁塔统计、杆塔明细表）
 - Excel 无"页面"概念，`page` 字段使用 sheet index 代替
 - 支持 .xlsx，.xls 旧格式推迟
+
+**TXT 纯文本解析**
+- 使用 Python 标准库读取，编码级联探测：`utf-8-sig` → `utf-8` → `gbk` → `latin-1`（`utf-8-sig` 自动剥离 BOM，`gbk` 覆盖中文 Windows 常见编码）
+- 按空行分段落，每段生成一个 `elem_type="text"` 的 ParsedElement
+- 空行处的元素在 `style` 中设置 `{"paragraph_break": true}`，供 ParagraphGrouper fallback 识别段落边界
+- 所有元素 `page=1`（纯文本无页面概念），`bbox=(0,0,0,0)`
+- 支持扩展名 `.txt`
+- 无额外依赖
+
+**Markdown 解析**
+- 顶层状态机逐行解析，维护 `in_code_block` 状态标志；代码块作为整体元素输出，不在内部按空行分段
+- 标题 → `elem_type="title"` + `style={"heading_level": N}`（N 为 1~6），ParagraphGrouper fallback 根据 heading_level 阈值（默认 3）判断是否拆分
+- 列表 → `elem_type="list_item"`
+- 表格（`|...|`）→ `elem_type="table"`，原始 pipe 格式文本作为 `content`，跳过 TableDescriber（Markdown 表格本身是人类可读的结构化文本）
+- 其余 → `elem_type="text"`
+- 行内格式处理：剥离 `**加粗**`、`*斜体*`、`~~删除线~~`、`[文字](url)` 等格式标记；保留行内代码 `` `code` `` 反引号（有助于精确检索）；图片 `![alt](path)` → 替换为 alt 文本或 `"[图片]"`
+- 支持扩展名 `.md`
+- 所有元素 `page=1`，`bbox=(0,0,0,0)`
+
+**CSV 解析**
+- 使用 Python 标准库 `csv` 模块，编码级联探测同 TxTParser
+- 分隔符检测：`csv.Sniffer` 优先 → 失败则按 `逗号 > 分号 > Tab` 依次尝试，取列数最多且稳定的分隔符；API 层支持可选参数 `delimiter` 供调用方显式指定
+- 表头检测：`csv.Sniffer.has_header()` 判断首行是否为表头，无表头时生成 `列1, 列2, ...` 占位列名
+- 复用共享函数 `format_rows(headers, rows)` 格式化为"列名:值"格式（从 ExcelParser 提取至 `base.py`，两个解析器共用）
+- 每 100 行生成一个 `ParsedElement(elem_type="table", page=1)`
+- `raw` 字段存储结构化数据 `{"headers": [...], "rows": [[...], ...]}`，供 QaChunker 逐行拆分使用
+- 支持扩展名 `.csv`
 
 **段落边界识别（自研）**
 - 依据 Element 的坐标、缩进、样式信息判断是否同属一个段落
@@ -858,13 +915,13 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 ### 7.1 摄入链路
 
 ```
-PDF / Word / Excel 文档上传
+PDF / Word / Excel / TXT / Markdown / CSV 文档上传
        │
        ├──▶ [原始文件存储] ──▶ MinIO/S3 /raw-docs/   ← 原件永久保存
        │     记录 raw_file_url 到 PostgreSQL documents 表
        │
        ▼
-[pymupdf / python-docx / openpyxl 解析]  →  扁平 Element 列表（文字/表格/图片）
+[pymupdf / python-docx / openpyxl / 标准库(TXT/MD/CSV) 解析]  →  扁平 Element 列表（文字/表格/图片）
        │
        ▼
 [段落边界识别]  →  Elements 聚合为段落组
@@ -962,7 +1019,7 @@ PDF / Word / Excel 文档上传
 | Phase 1 | 主链路跑通 | Unstructured 解析 + Milvus 存储 + Qwen 问答（PDF/Word） |
 | Phase 2 | 检索质量提升 | 混合检索 + BGE-Reranker + 查询改写 + 调试接口 |
 | Phase 3 | 混合块能力 | 段落聚合 + 表格截图 + MixedChunk 召回 |
-| Phase 4 | 格式扩展 | HTML / Markdown Parser + 增量更新 |
+| Phase 4 | 格式扩展 | HTML Parser + 增量更新 |
 | Phase 5 | 工程化完善 | JWT 鉴权 + ACL 权限过滤 + 签名 URL 服务 + 参数配置 API + 管理后台 |
 | Phase 6 | 高级能力 | 多跳推理 + 备用 LLM 降级 + 缓存优化 |
 | Phase 7 | 可观测落地 | 监控指标、质量评估体系、vLLM 部署规范 |
