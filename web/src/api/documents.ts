@@ -1,5 +1,4 @@
 import request from './request'
-import axios from 'axios'
 
 export interface UploadResponse {
   doc_id: string
@@ -43,7 +42,7 @@ export const uploadDocuments = (files: File[], datasetId?: string) => {
   const formData = new FormData()
   files.forEach((f) => formData.append('files', f))
   if (datasetId) formData.append('dataset_id', datasetId)
-  return axios.post<any, UploadResponse[]>('/api/v1/documents', formData, {
+  return request.post<any, UploadResponse[]>('/documents', formData, {
     timeout: 120000,
   })
 }
