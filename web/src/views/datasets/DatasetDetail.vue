@@ -101,15 +101,33 @@
           <span v-else>-</span>
         </template>
         <template v-if="column.key === 'action'">
-          <a-space>
-            <router-link v-if="record.status === 'done'" :to="{ path: '/query', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">问答</router-link>
-            <router-link v-if="record.status === 'done'" :to="{ path: '/retrieve', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">检索</router-link>
-            <router-link v-if="record.status === 'done'" :to="`/documents/${record.doc_id}/chunks`">查看分块</router-link>
-            <a-button v-if="record.status === 'failed'" type="link" size="small" @click="retryDoc(record.doc_id)">重试</a-button>
-            <a-button v-if="record.status === 'done'" type="link" size="small" @click="retryDoc(record.doc_id)">重新解析</a-button>
-            <a-popconfirm title="确定删除？" @confirm="handleDeleteDoc(record.doc_id)">
-              <a-button type="link" danger size="small">删除</a-button>
-            </a-popconfirm>
+          <a-space :size="4">
+            <a-tooltip v-if="record.status === 'done'" title="智能问答">
+              <router-link :to="{ path: '/query', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">
+                <a-button type="text" size="small"><SearchOutlined /></a-button>
+              </router-link>
+            </a-tooltip>
+            <a-tooltip v-if="record.status === 'done'" title="语义检索">
+              <router-link :to="{ path: '/retrieve', query: { dataset_ids: datasetId, doc_ids: record.doc_id } }">
+                <a-button type="text" size="small"><FileSearchOutlined /></a-button>
+              </router-link>
+            </a-tooltip>
+            <a-tooltip v-if="record.status === 'done'" title="查看分块">
+              <router-link :to="`/documents/${record.doc_id}/chunks`">
+                <a-button type="text" size="small"><UnorderedListOutlined /></a-button>
+              </router-link>
+            </a-tooltip>
+            <a-tooltip v-if="record.status === 'done'" title="重新解析">
+              <a-button type="text" size="small" @click="retryDoc(record.doc_id)"><RedoOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip v-if="record.status === 'failed'" title="重试解析">
+              <a-button type="text" size="small" @click="retryDoc(record.doc_id)"><RedoOutlined /></a-button>
+            </a-tooltip>
+            <a-tooltip title="删除">
+              <a-popconfirm title="确定删除？" @confirm="handleDeleteDoc(record.doc_id)">
+                <a-button type="text" size="small" danger><DeleteOutlined /></a-button>
+              </a-popconfirm>
+            </a-tooltip>
           </a-space>
         </template>
       </template>
@@ -132,7 +150,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { InboxOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
@@ -186,7 +204,7 @@ const columns = [
   { title: '大小', key: 'file_size', width: 90 },
   { title: '状态', key: 'status', width: 100 },
   { title: '错误信息', key: 'error_msg', ellipsis: true },
-  { title: '操作', key: 'action', width: 200 },
+  { title: '操作', key: 'action', width: 260 },
 ]
 
 function formatFileSize(bytes: number | null): string {
