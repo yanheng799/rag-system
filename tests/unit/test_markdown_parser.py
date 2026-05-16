@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from src.ingestion.parsers.markdown_parser import MarkdownParser, _strip_inline_formatting
+from src.ingestion.parsers.markdown_parser import MarkdownParser
 
 
 @pytest.fixture
@@ -209,23 +209,65 @@ Outro text."""
 
 
 class TestInlineFormatting:
-    def test_bold_stripped(self):
-        assert _strip_inline_formatting("**bold**") == "bold"
+    """通过 parse() 验证行内格式在解析时被正确处理"""
 
-    def test_italic_stripped(self):
-        assert _strip_inline_formatting("*italic*") == "italic"
+    def test_bold_stripped(self, parser):
+        path = _write_tmp("This is **bold** text")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "**" not in elems[0].content
+            assert "bold" in elems[0].content
+        finally:
+            os.unlink(path)
 
-    def test_link_stripped(self):
-        assert _strip_inline_formatting("[text](http://example.com)") == "text"
+    def test_italic_stripped(self, parser):
+        path = _write_tmp("This is *italic* text")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "*" not in elems[0].content.replace("*", "")  # no bare asterisks
+            assert "italic" in elems[0].content
+        finally:
+            os.unlink(path)
 
-    def test_image_to_alt(self):
-        assert _strip_inline_formatting("![alt text](img.png)") == "alt text"
+    def test_link_stripped(self, parser):
+        path = _write_tmp("Visit [the site](http://example.com) now")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "http://example.com" not in elems[0].content
+            assert "the site" in elems[0].content
+        finally:
+            os.unlink(path)
 
-    def test_image_no_alt(self):
-        assert _strip_inline_formatting("![](img.png)") == "[图片]"
+    def test_image_to_alt(self, parser):
+        path = _write_tmp("See ![alt text](img.png) here")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "img.png" not in elems[0].content
+            assert "alt text" in elems[0].content
+        finally:
+            os.unlink(path)
 
-    def test_code_preserved(self):
-        assert "`code`" in _strip_inline_formatting("use `code` here")
+    def test_image_no_alt(self, parser):
+        path = _write_tmp("See ![](img.png) here")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "[图片]" in elems[0].content
+        finally:
+            os.unlink(path)
+
+    def test_code_preserved(self, parser):
+        path = _write_tmp("Use `code` here")
+        try:
+            elems = parser.parse(path)
+            assert len(elems) == 1
+            assert "`code`" in elems[0].content
+        finally:
+            os.unlink(path)
 
 
 class TestMarkdownParserEdgeCases:

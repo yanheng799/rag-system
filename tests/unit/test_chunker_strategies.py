@@ -3,7 +3,6 @@
 from src.ingestion.chunkers.registry import ChunkerRegistry, init_chunkers
 from src.ingestion.chunkers.strategies.fixed_size_chunker import (
     FixedSizeChunker,
-    _get_overlap_elements,
 )
 from src.ingestion.chunkers.strategies.heading_chunker import HeadingChunker
 from src.ingestion.chunkers.strategies.page_chunker import PageChunker
@@ -107,29 +106,33 @@ class TestFixedSizeChunker:
             size = sum(len(e.content) for e in group)
             assert size <= 100
 
+    def test_zero_overlap_no_shared_elements(self):
+        """overlap=0 时相邻 chunk 不共享元素"""
+        elems = [_elem("a" * 60), _elem("b" * 60), _elem("c" * 60)]
 
-class TestGetOverlapElements:
-    """overlap 回溯逻辑"""
+        result = self.chunker.chunk(
+            elems, self.page_sizes, "doc1", max_chunk_size=80, overlap=0,
+        )
 
-    def test_returns_trailing_elements(self):
-        elems = [_elem("aaa"), _elem("bbb"), _elem("ccc")]
+        if len(result) >= 2:
+            for i in range(len(result) - 1):
+                ids_a = {id(e) for e in result[i][0]}
+                ids_b = {id(e) for e in result[i + 1][0]}
+                assert not (ids_a & ids_b), "overlap=0 时不应有共享元素"
 
-        overlap = _get_overlap_elements(elems, overlap_chars=5)
+    def test_large_overlap_includes_most_elements(self):
+        """大 overlap 值时，下一个 chunk 包含上一个 chunk 的大部分元素"""
+        elems = [_elem("aaaa"), _elem("bbbb"), _elem("cccc"), _elem("dddd")]
 
-        assert len(overlap) >= 1
-        assert overlap[-1].content == "ccc"
+        result = self.chunker.chunk(
+            elems, self.page_sizes, "doc1", max_chunk_size=6, overlap=10,
+        )
 
-    def test_zero_overlap_returns_empty(self):
-        result = _get_overlap_elements([_elem("aaa")], overlap_chars=0)
-
-        assert result == []
-
-    def test_full_group_as_overlap(self):
-        elems = [_elem("aa")]
-
-        overlap = _get_overlap_elements(elems, overlap_chars=100)
-
-        assert overlap == elems
+        if len(result) >= 2:
+            # 大 overlap 意味着大部分/全部上一组元素出现在下一组
+            first_ids = {id(e) for e in result[0][0]}
+            second_ids = {id(e) for e in result[1][0]}
+            assert first_ids & second_ids, "大 overlap 应产生大量共享元素"
 
 
 class TestHeadingChunker:

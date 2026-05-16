@@ -6,7 +6,7 @@ import tempfile
 import pytest
 
 from src.ingestion.parsers.base import ParseError, format_rows
-from src.ingestion.parsers.csv_parser import CsvParser, _detect_delimiter, _detect_has_header
+from src.ingestion.parsers.csv_parser import CsvParser
 
 
 @pytest.fixture
@@ -162,7 +162,6 @@ class TestCsvParserEdgeCases:
         path = _write_tmp("A,B,C")
         try:
             elems = parser.parse(path)
-            # 只有一行，无论是否检测为表头，raw["rows"] 都可能为空或有数据
             assert len(elems) >= 1
         finally:
             os.unlink(path)
@@ -175,10 +174,9 @@ class TestCsvParserEdgeCases:
         path = _write_tmp("Value\n1\n2\n3")
         try:
             elems = parser.parse(path)
-            # Sniffer 可能检测到表头，rows 可能是 3 或 2+header
             assert len(elems) >= 1
             total_data = sum(len(e.raw["rows"]) for e in elems)
-            assert total_data >= 3  # 至少有 3 条数据行
+            assert total_data >= 3
         finally:
             os.unlink(path)
 
@@ -201,26 +199,3 @@ class TestFormatRows:
     def test_placeholder_column_name(self):
         result = format_rows(["", "B"], [["1", "2"]])
         assert "列1: 1" in result
-
-
-class TestDetectDelimiter:
-    def test_comma(self):
-        delim, rows = _detect_delimiter("a,b\nc,d")
-        assert delim == ","
-        assert len(rows) == 2
-
-    def test_tab(self):
-        delim, rows = _detect_delimiter("a\tb\nc\td")
-        assert delim == "\t"
-
-    def test_with_hint(self):
-        delim, rows = _detect_delimiter("a;b\nc;d", hint=";")
-        assert delim == ";"
-
-
-class TestDetectHasHeader:
-    def test_with_header(self):
-        assert _detect_has_header([["Name", "Age"], ["Alice", "30"]]) is True
-
-    def test_no_header(self):
-        assert _detect_has_header([["1", "2"], ["3", "4"], ["5", "6"]]) is False

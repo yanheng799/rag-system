@@ -38,6 +38,51 @@ def _detect_chunk_type(elements: list[dict]) -> str:
     return types.pop() if types else "text"
 
 
+def _validate_merge_same_doc(chunks: list) -> str:
+    """校验所有 chunk 属于同一文档，返回 doc_id"""
+    doc_ids = {c.doc_id for c in chunks}
+    if len(doc_ids) != 1:
+        raise HTTPException(status_code=400, detail="只能合并同一文档的分块")
+    return doc_ids.pop()
+
+
+def _validate_merge_no_gap(
+    body_chunk_ids: list[str],
+    all_chunks: list,
+    min_page: int,
+    min_idx: int,
+    max_page: int,
+    max_idx: int,
+) -> None:
+    """校验选定范围内无遗漏 chunk"""
+    selected_ids = set(body_chunk_ids)
+    for c in all_chunks:
+        pos = (c.page, c.chunk_index)
+        if (min_page, min_idx) <= pos <= (max_page, max_idx) and c.chunk_id not in selected_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"选定范围内存在未选中的分块: {c.chunk_id}，请先合并或移除",
+            )
+
+
+def _validate_char_limit(char_count: int) -> None:
+    """校验文本长度不超过 embedding 限制"""
+    if char_count > EMBEDDING_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"合并后文本长度 {char_count} 超过 embedding 限制 {EMBEDDING_MAX_CHARS} 字符",
+        )
+
+
+def _validate_split_at(split_at: int, num_elements: int) -> None:
+    """校验 split_at 在合法范围内"""
+    if split_at >= num_elements:
+        raise HTTPException(
+            status_code=400,
+            detail=f"split_at={split_at} 超出元素范围 (共 {num_elements} 个元素)",
+        )
+
+
 async def _dissolve_orphan_groups(pg_store, milvus_store, embedder, deleted_chunk_ids: list[str]) -> None:
     """合并/删除后，若被删除的 chunk 所在组已无其他成员，则清理 PG 残留"""
     chunks = await pg_store.get_chunks_by_ids(deleted_chunk_ids)
@@ -308,11 +353,7 @@ async def merge_chunks(request: Request, body: MergeRequest):
         raise HTTPException(status_code=404, detail=f"分块不存在: {missing}")
 
     # 2. 校验：同一文档
-    doc_ids = {c.doc_id for c in chunks}
-    if len(doc_ids) != 1:
-        raise HTTPException(status_code=400, detail="只能合并同一文档的分块")
-
-    doc_id = doc_ids.pop()
+    doc_id = _validate_merge_same_doc(chunks)
 
     # 3. 校验：选定范围内无遗漏 chunk
     sorted_chunks = sorted(chunks, key=lambda c: (c.page, c.chunk_index))
@@ -320,14 +361,9 @@ async def merge_chunks(request: Request, body: MergeRequest):
     max_page, max_idx = sorted_chunks[-1].page, sorted_chunks[-1].chunk_index
 
     all_in_range, _ = await pg_store.list_chunks_by_doc(doc_id, page=1, size=10000)
-    selected_ids = set(body.chunk_ids)
-    for c in all_in_range:
-        pos = (c.page, c.chunk_index)
-        if (min_page, min_idx) <= pos <= (max_page, max_idx) and c.chunk_id not in selected_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"选定范围内存在未选中的分块: {c.chunk_id}，请先合并或移除",
-            )
+    _validate_merge_no_gap(
+        body.chunk_ids, all_in_range, min_page, min_idx, max_page, max_idx,
+    )
 
     # 4. 合并数据
     merged_elements = []
@@ -342,11 +378,7 @@ async def merge_chunks(request: Request, body: MergeRequest):
     merged_char_count = len(merged_full_text)
 
     # 5. 校验：字数不超过 embedding 限制
-    if merged_char_count > EMBEDDING_MAX_CHARS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"合并后文本长度 {merged_char_count} 超过 embedding 限制 {EMBEDDING_MAX_CHARS} 字符",
-        )
+    _validate_char_limit(merged_char_count)
 
     merged_page = sorted_chunks[0].page
     merged_chunk_index = sorted_chunks[0].chunk_index
@@ -429,11 +461,7 @@ async def split_chunk(request: Request, chunk_id: str, body: SplitRequest):
 
     elements = chunk.elements if isinstance(chunk.elements, list) else []
 
-    if body.split_at >= len(elements):
-        raise HTTPException(
-            status_code=400,
-            detail=f"split_at={body.split_at} 超出元素范围 (共 {len(elements)} 个元素)",
-        )
+    _validate_split_at(body.split_at, len(elements))
 
     elems_a = elements[: body.split_at]
     elems_b = elements[body.split_at :]

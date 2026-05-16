@@ -1,24 +1,82 @@
-"""分块管理 API 逻辑测试"""
+"""分块管理 API 逻辑测试 — 通过真实函数和 Schema 验证"""
 
 from __future__ import annotations
 
-from src.api.routers.chunks import EMBEDDING_MAX_CHARS, _detect_chunk_type
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+
+from src.api.routers.chunks import (
+    EMBEDDING_MAX_CHARS,
+    _cleanup_oss_images,
+    _detect_chunk_type,
+    _dissolve_orphan_groups,
+    _validate_char_limit,
+    _validate_merge_no_gap,
+    _validate_merge_same_doc,
+    _validate_split_at,
+)
+
+
+# ---- 轻量 Fake 对象 ----
+
+
+class _FakeChunk:
+    __slots__ = ("chunk_id", "doc_id", "page", "chunk_index", "group_id")
+
+    def __init__(self, chunk_id, doc_id="", page=1, chunk_index=0, group_id=""):
+        self.chunk_id = chunk_id
+        self.doc_id = doc_id
+        self.page = page
+        self.chunk_index = chunk_index
+        self.group_id = group_id
+
+
+class _FakePgStore:
+    def __init__(self, chunks=None):
+        self._chunks = chunks or []
+        self.cleared_group_ids: list[list[str]] = []
+
+    async def get_chunks_by_ids(self, ids):
+        return [c for c in self._chunks if c.chunk_id in ids]
+
+    async def clear_group_id(self, gids):
+        self.cleared_group_ids.append(gids)
+
+
+class _FakeMilvusStore:
+    def __init__(self, siblings=None):
+        self._siblings = siblings or []
+
+    def fetch_by_group_ids(self, gids):
+        return self._siblings
+
+
+class _FakeOssStore:
+    def __init__(self, fail_on=None):
+        self.deleted: list[str] = []
+        self._fail_on = fail_on or set()
+
+    def delete(self, url):
+        if url in self._fail_on:
+            raise RuntimeError(f"delete failed: {url}")
+        self.deleted.append(url)
+
+
+# ---- _detect_chunk_type ----
 
 
 class TestDetectChunkType:
-    """测试 chunk_type 推断逻辑"""
+    """根据 elements 列表推断 chunk_type"""
 
     def test_single_text(self):
-        elements = [{"type": "text", "content": "hello"}]
-        assert _detect_chunk_type(elements) == "text"
+        assert _detect_chunk_type([{"type": "text", "content": "hello"}]) == "text"
 
     def test_single_table(self):
-        elements = [{"type": "table", "content": "| a | b |"}]
-        assert _detect_chunk_type(elements) == "table"
+        assert _detect_chunk_type([{"type": "table", "content": "| a | b |"}]) == "table"
 
     def test_single_image(self):
-        elements = [{"type": "image", "content": "图片", "image_url": "x.png"}]
-        assert _detect_chunk_type(elements) == "image"
+        assert _detect_chunk_type([{"type": "image", "content": "图片", "image_url": "x.png"}]) == "image"
 
     def test_mixed(self):
         elements = [
@@ -27,181 +85,225 @@ class TestDetectChunkType:
         ]
         assert _detect_chunk_type(elements) == "mixed"
 
-    def test_empty(self):
+    def test_empty_returns_text(self):
         assert _detect_chunk_type([]) == "text"
 
 
-class TestMergeValidation:
-    """测试合并校验逻辑"""
+# ---- _validate_merge_same_doc ----
 
-    def test_same_doc_check(self):
-        """不同文档的 chunk 不能合并"""
-        chunks_data = [
-            {"chunk_id": "a_p1_c0", "doc_id": "doc_a", "page": 1, "chunk_index": 0},
-            {"chunk_id": "b_p1_c0", "doc_id": "doc_b", "page": 1, "chunk_index": 0},
-        ]
-        doc_ids = {c["doc_id"] for c in chunks_data}
-        assert len(doc_ids) != 1
 
-    def test_no_gap_range(self):
-        """选定范围（page+chunk_index）内不应有遗漏 chunk"""
-        selected = [
-            {"chunk_id": "a_p1_c0", "page": 1, "chunk_index": 0},
-            {"chunk_id": "a_p1_c2", "page": 1, "chunk_index": 2},
-        ]
+class TestValidateMergeSameDoc:
+    """合并校验：同一文档检查"""
+
+    def test_same_doc_returns_doc_id(self):
+        chunks = [_FakeChunk("c1", "doc_a"), _FakeChunk("c2", "doc_a")]
+        assert _validate_merge_same_doc(chunks) == "doc_a"
+
+    def test_different_doc_raises_400(self):
+        chunks = [_FakeChunk("c1", "doc_a"), _FakeChunk("c2", "doc_b")]
+        with pytest.raises(HTTPException) as exc:
+            _validate_merge_same_doc(chunks)
+        assert exc.value.status_code == 400
+        assert "同一文档" in exc.value.detail
+
+
+# ---- _validate_merge_no_gap ----
+
+
+class TestValidateMergeNoGap:
+    """合并校验：选定范围内无遗漏"""
+
+    def test_no_gap_passes(self):
         all_chunks = [
-            {"chunk_id": "a_p1_c0", "page": 1, "chunk_index": 0},
-            {"chunk_id": "a_p1_c1", "page": 1, "chunk_index": 1},  # 遗漏
-            {"chunk_id": "a_p1_c2", "page": 1, "chunk_index": 2},
+            _FakeChunk("c0", page=1, chunk_index=0),
+            _FakeChunk("c1", page=1, chunk_index=1),
+            _FakeChunk("c2", page=1, chunk_index=2),
         ]
-        sorted_sel = sorted(selected, key=lambda c: (c["page"], c["chunk_index"]))
-        min_pos = (sorted_sel[0]["page"], sorted_sel[0]["chunk_index"])
-        max_pos = (sorted_sel[-1]["page"], sorted_sel[-1]["chunk_index"])
-        selected_ids = {c["chunk_id"] for c in selected}
-        has_gap = any(
-            (c["page"], c["chunk_index"]) >= min_pos
-            and (c["page"], c["chunk_index"]) <= max_pos
-            and c["chunk_id"] not in selected_ids
-            for c in all_chunks
-        )
-        assert has_gap is True
+        _validate_merge_no_gap(["c0", "c1"], all_chunks, 1, 0, 1, 1)
 
-    def test_no_gap_range_ok(self):
-        """选定范围无遗漏时应通过"""
-        selected = [
-            {"chunk_id": "a_p1_c0", "page": 1, "chunk_index": 0},
-            {"chunk_id": "a_p1_c1", "page": 1, "chunk_index": 1},
-        ]
+    def test_gap_raises_400(self):
         all_chunks = [
-            {"chunk_id": "a_p1_c0", "page": 1, "chunk_index": 0},
-            {"chunk_id": "a_p1_c1", "page": 1, "chunk_index": 1},
-            {"chunk_id": "a_p1_c2", "page": 1, "chunk_index": 2},
+            _FakeChunk("c0", page=1, chunk_index=0),
+            _FakeChunk("c1", page=1, chunk_index=1),
+            _FakeChunk("c2", page=1, chunk_index=2),
         ]
-        sorted_sel = sorted(selected, key=lambda c: (c["page"], c["chunk_index"]))
-        min_pos = (sorted_sel[0]["page"], sorted_sel[0]["chunk_index"])
-        max_pos = (sorted_sel[-1]["page"], sorted_sel[-1]["chunk_index"])
-        selected_ids = {c["chunk_id"] for c in selected}
-        has_gap = any(
-            (c["page"], c["chunk_index"]) >= min_pos
-            and (c["page"], c["chunk_index"]) <= max_pos
-            and c["chunk_id"] not in selected_ids
-            for c in all_chunks
-        )
-        assert has_gap is False
+        with pytest.raises(HTTPException) as exc:
+            _validate_merge_no_gap(["c0", "c2"], all_chunks, 1, 0, 1, 2)
+        assert exc.value.status_code == 400
+        assert "未选中" in exc.value.detail
+        assert "c1" in exc.value.detail
 
-    def test_embedding_char_limit(self):
-        """合并后 full_text 超过 embedding 限制应拒绝"""
-        char_count = EMBEDDING_MAX_CHARS + 1
-        assert char_count > EMBEDDING_MAX_CHARS
-
-    def test_embedding_char_limit_ok(self):
-        """合并后 full_text 在限制内应通过"""
-        char_count = EMBEDDING_MAX_CHARS
-        assert char_count <= EMBEDDING_MAX_CHARS
-
-    def test_min_chunks(self):
-        """至少需要 2 个 chunk"""
-        assert len(["only_one"]) < 2
-
-
-class TestSplitValidation:
-    """测试拆分校验逻辑"""
-
-    def test_split_at_boundary_zero(self):
-        """split_at=0 不合法"""
-        split_at = 0
-        assert split_at < 1
-
-    def test_split_at_equals_len(self):
-        """split_at=len(elements) 不合法"""
-        elements = [{"type": "text", "content": "a"}, {"type": "text", "content": "b"}]
-        split_at = len(elements)
-        assert split_at >= len(elements)
-
-    def test_split_at_valid(self):
-        """split_at=1 合法"""
-        elements = [{"type": "text", "content": "a"}, {"type": "text", "content": "b"}]
-        split_at = 1
-        assert 1 <= split_at < len(elements)
-
-    def test_split_result(self):
-        """验证拆分后元素分配正确"""
-        elements = [
-            {"type": "text", "content": "a"},
-            {"type": "table", "content": "| b |"},
-            {"type": "text", "content": "c"},
+    def test_outside_range_ignored(self):
+        all_chunks = [
+            _FakeChunk("c0", page=1, chunk_index=0),
+            _FakeChunk("c1", page=1, chunk_index=1),
+            _FakeChunk("c2", page=1, chunk_index=2),
         ]
-        split_at = 2
-        elems_a = elements[:split_at]
-        elems_b = elements[split_at:]
-        assert len(elems_a) == 2
-        assert len(elems_b) == 1
-        assert elems_a[0]["content"] == "a"
-        assert elems_b[0]["content"] == "c"
+        _validate_merge_no_gap(["c0", "c1"], all_chunks, 1, 0, 1, 1)
 
-    def test_split_image_urls(self):
-        """拆分后 image_urls 按元素归属分配"""
-        elements = [
-            {"type": "table", "content": "t1", "image_url": "img1.png"},
-            {"type": "table", "content": "t2", "image_url": "img2.png"},
+    def test_cross_page_gap(self):
+        all_chunks = [
+            _FakeChunk("c0", page=1, chunk_index=0),
+            _FakeChunk("c1", page=1, chunk_index=1),
+            _FakeChunk("c2", page=2, chunk_index=0),
         ]
-        split_at = 1
-        urls_a = [e.get("image_url") for e in elements[:split_at] if e.get("image_url")]
-        urls_b = [e.get("image_url") for e in elements[split_at:] if e.get("image_url")]
-        assert urls_a == ["img1.png"]
-        assert urls_b == ["img2.png"]
-
-    def test_single_element_cannot_split(self):
-        """只有 1 个元素的 chunk 无法拆分"""
-        elements = [{"type": "text", "content": "only"}]
-        split_at = 1
-        assert split_at >= len(elements)
+        with pytest.raises(HTTPException) as exc:
+            _validate_merge_no_gap(["c0", "c2"], all_chunks, 1, 0, 2, 0)
+        assert "c1" in exc.value.detail
 
 
-class TestSplitGroupPolicy:
-    """测试拆分 group_id 策略"""
+# ---- _validate_char_limit ----
 
-    def test_link_group_true(self):
-        """link_group=True 时两子 chunk 应共享 group_id"""
-        link_group = True
-        doc_id = "doc_test"
-        group_id = f"{doc_id}_g_abc12345" if link_group else ""
-        assert group_id != ""
-        assert group_id.startswith(f"{doc_id}_g_")
 
-    def test_link_group_false(self):
-        """link_group=False 时两子 chunk 的 group_id 应为空"""
-        link_group = False
-        doc_id = "doc_test"
-        group_id = ""
-        if link_group:
-            group_id = f"{doc_id}_g_abc12345"
-        assert group_id == ""
+class TestValidateCharLimit:
+    """合并校验：embedding 字数限制"""
 
-    def test_default_is_false(self):
-        """Schema 默认值应为 False"""
+    def test_within_limit_passes(self):
+        _validate_char_limit(EMBEDDING_MAX_CHARS)
+
+    def test_exactly_at_limit_passes(self):
+        _validate_char_limit(EMBEDDING_MAX_CHARS)
+
+    def test_over_limit_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            _validate_char_limit(EMBEDDING_MAX_CHARS + 1)
+        assert exc.value.status_code == 400
+        assert "embedding 限制" in exc.value.detail
+
+    def test_zero_passes(self):
+        _validate_char_limit(0)
+
+
+# ---- _validate_split_at ----
+
+
+class TestValidateSplitAt:
+    """拆分校验：split_at 边界"""
+
+    def test_valid_passes(self):
+        _validate_split_at(1, 3)
+
+    def test_split_at_middle(self):
+        _validate_split_at(2, 5)
+
+    def test_equals_len_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            _validate_split_at(2, 2)
+        assert exc.value.status_code == 400
+        assert "超出元素范围" in exc.value.detail
+
+    def test_exceeds_len_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            _validate_split_at(5, 3)
+        assert exc.value.status_code == 400
+
+    def test_single_element_rejects_split_at_1(self):
+        with pytest.raises(HTTPException) as exc:
+            _validate_split_at(1, 1)
+        assert exc.value.status_code == 400
+
+
+# ---- Schema 验证 ----
+
+
+class TestMergeRequestSchema:
+    """MergeRequest Pydantic 校验"""
+
+    def test_min_two_chunk_ids(self):
+        from src.api.schemas.chunks import MergeRequest
+
+        with pytest.raises(ValidationError):
+            MergeRequest(chunk_ids=["only_one"])
+
+    def test_valid_request(self):
+        from src.api.schemas.chunks import MergeRequest
+
+        req = MergeRequest(chunk_ids=["c1", "c2"])
+        assert req.chunk_ids == ["c1", "c2"]
+
+
+class TestSplitRequestSchema:
+    """SplitRequest Pydantic 校验"""
+
+    def test_split_at_zero_rejected(self):
+        from src.api.schemas.chunks import SplitRequest
+
+        with pytest.raises(ValidationError):
+            SplitRequest(split_at=0)
+
+    def test_split_at_negative_rejected(self):
+        from src.api.schemas.chunks import SplitRequest
+
+        with pytest.raises(ValidationError):
+            SplitRequest(split_at=-1)
+
+    def test_default_link_group_is_false(self):
         from src.api.schemas.chunks import SplitRequest
 
         req = SplitRequest(split_at=1)
         assert req.link_group is False
 
+    def test_explicit_link_group_true(self):
+        from src.api.schemas.chunks import SplitRequest
 
-class TestDeleteValidation:
-    """测试删除校验逻辑"""
+        req = SplitRequest(split_at=1, link_group=True)
+        assert req.link_group is True
 
-    def test_delete_nonexistent_returns_none(self):
-        """删除不存在的 chunk 应返回 None（路由层判 404）"""
-        # 模拟 get_chunk 返回 None
-        assert None is None
 
-    def test_dissolve_orphan_group(self):
-        """删除带 group_id 的 chunk 时，同组兄弟应解散"""
-        deleted_chunk = {"chunk_id": "a_p1_c0", "group_id": "doc_g0"}
-        sibling_chunk = {"chunk_id": "a_p1_c1", "group_id": "doc_g0"}
-        affected_groups = set()
-        if deleted_chunk["group_id"]:
-            affected_groups.add(deleted_chunk["group_id"])
-        # 兄弟应清空 group_id
-        if sibling_chunk["group_id"] in affected_groups:
-            sibling_chunk["group_id"] = ""
-        assert sibling_chunk["group_id"] == ""
+# ---- _dissolve_orphan_groups ----
+
+
+class TestDissolveOrphanGroups:
+    """孤儿组解散逻辑"""
+
+    @pytest.mark.asyncio
+    async def test_orphan_group_cleaned(self):
+        pg = _FakePgStore(chunks=[_FakeChunk("c1", group_id="g1")])
+        milvus = _FakeMilvusStore(siblings=[{"chunk_id": "c1"}])
+
+        await _dissolve_orphan_groups(pg, milvus, None, ["c1"])
+
+        assert ["g1"] in pg.cleared_group_ids
+
+    @pytest.mark.asyncio
+    async def test_surviving_members_not_cleaned(self):
+        pg = _FakePgStore(chunks=[_FakeChunk("c1", group_id="g1")])
+        milvus = _FakeMilvusStore(siblings=[{"chunk_id": "c1"}, {"chunk_id": "c2"}])
+
+        await _dissolve_orphan_groups(pg, milvus, None, ["c1"])
+
+        assert pg.cleared_group_ids == []
+
+    @pytest.mark.asyncio
+    async def test_no_group_id_early_return(self):
+        pg = _FakePgStore(chunks=[_FakeChunk("c1", group_id="")])
+        milvus = _FakeMilvusStore()
+
+        await _dissolve_orphan_groups(pg, milvus, None, ["c1"])
+
+        assert pg.cleared_group_ids == []
+
+
+# ---- _cleanup_oss_images ----
+
+
+class TestCleanupOssImages:
+    """OSS 图片清理"""
+
+    @pytest.mark.asyncio
+    async def test_deletes_all_urls(self):
+        oss = _FakeOssStore()
+        await _cleanup_oss_images(oss, ["img1.png", "img2.png"])
+        assert oss.deleted == ["img1.png", "img2.png"]
+
+    @pytest.mark.asyncio
+    async def test_continues_on_failure(self):
+        oss = _FakeOssStore(fail_on={"img2.png"})
+        await _cleanup_oss_images(oss, ["img1.png", "img2.png", "img3.png"])
+        assert oss.deleted == ["img1.png", "img3.png"]
+
+    @pytest.mark.asyncio
+    async def test_empty_urls_no_op(self):
+        oss = _FakeOssStore()
+        await _cleanup_oss_images(oss, [])
+        assert oss.deleted == []
