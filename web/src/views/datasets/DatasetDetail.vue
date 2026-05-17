@@ -46,41 +46,68 @@
       </div>
     </div>
 
-    <div class="table-toolbar">
-      <div class="toolbar-left">
-        <h3 class="section-title">文档列表</h3>
-        <a-select v-model:value="chunkForm.strategy" style="width: 130px" size="small">
-          <a-select-option value="paragraph">段落分块</a-select-option>
-          <a-select-option value="heading">标题分块</a-select-option>
-          <a-select-option value="fixed_size">固定大小</a-select-option>
-          <a-select-option value="page">逐页分块</a-select-option>
-          <a-select-option value="qa">QA 分块</a-select-option>
-        </a-select>
-        <a-tooltip :title="strategyDesc">
-          <info-circle-outlined style="color: var(--color-text-tertiary); cursor: help" aria-hidden="true" />
-        </a-tooltip>
-        <a-popover trigger="click" placement="bottomLeft">
+    <!-- 解析策略配置 -->
+    <div class="strategy-section">
+      <div class="strategy-header">
+        <div>
+          <h3 class="strategy-title">解析策略</h3>
+          <p class="strategy-subtitle">选择文档的分块方式，不同策略影响检索精度</p>
+        </div>
+        <a-popover trigger="click" placement="bottomRight" overlay-class-name="strategy-popover">
           <template #content>
             <div class="advanced-form">
-              <a-form layout="vertical" size="small">
-                <a-form-item label="最大分块字符数">
-                  <a-input-number v-model:value="chunkForm.max_size" :min="100" :max="8192" placeholder="默认 1024" name="max_size" />
-                </a-form-item>
-                <a-form-item v-if="chunkForm.strategy === 'fixed_size'" label="重叠字符数">
-                  <a-input-number v-model:value="chunkForm.overlap" :min="0" :max="512" placeholder="默认 0" name="overlap" />
-                </a-form-item>
-                <a-form-item v-if="chunkForm.strategy === 'paragraph'" label="垂直间距阈值(px)">
-                  <a-input-number v-model:value="chunkForm.vertical_gap" :min="0" :max="100" :step="0.5" placeholder="默认 15" name="vertical_gap" />
-                </a-form-item>
-                <a-form-item label="最小分块字符数">
-                  <a-input-number v-model:value="chunkForm.min_size" :min="0" :max="500" placeholder="默认 50" name="min_size" />
-                </a-form-item>
-              </a-form>
+              <div class="advanced-title">高级参数</div>
+              <div class="advanced-item">
+                <label class="advanced-label">最大分块字符数</label>
+                <a-input-number v-model:value="chunkForm.max_size" :min="100" :max="8192" placeholder="默认 1024" size="small" class="advanced-input" />
+              </div>
+              <div v-if="chunkForm.strategy === 'fixed_size'" class="advanced-item">
+                <label class="advanced-label">重叠字符数</label>
+                <a-input-number v-model:value="chunkForm.overlap" :min="0" :max="512" placeholder="默认 0" size="small" class="advanced-input" />
+              </div>
+              <div v-if="chunkForm.strategy === 'paragraph'" class="advanced-item">
+                <label class="advanced-label">垂直间距阈值(px)</label>
+                <a-input-number v-model:value="chunkForm.vertical_gap" :min="0" :max="100" :step="0.5" placeholder="默认 15" size="small" class="advanced-input" />
+              </div>
+              <div class="advanced-item">
+                <label class="advanced-label">最小分块字符数</label>
+                <a-input-number v-model:value="chunkForm.min_size" :min="0" :max="500" placeholder="默认 50" size="small" class="advanced-input" />
+              </div>
             </div>
           </template>
-          <a-button type="text" size="small"><setting-outlined aria-hidden="true" /> 高级</a-button>
+          <a-button type="text" size="small" class="strategy-advanced-btn">
+            <setting-outlined /> 高级设置
+          </a-button>
         </a-popover>
       </div>
+      <div class="strategy-pills">
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'paragraph' }" @click="chunkForm.strategy = 'paragraph'">
+          <align-left-outlined />
+          <span>段落分块</span>
+          <span class="strategy-pill-badge">推荐</span>
+        </div>
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'heading' }" @click="chunkForm.strategy = 'heading'">
+          <read-outlined />
+          <span>标题分块</span>
+        </div>
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'fixed_size' }" @click="chunkForm.strategy = 'fixed_size'">
+          <column-width-outlined />
+          <span>固定大小</span>
+        </div>
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'page' }" @click="chunkForm.strategy = 'page'">
+          <file-text-outlined />
+          <span>逐页分块</span>
+        </div>
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'qa' }" @click="chunkForm.strategy = 'qa'">
+          <message-outlined />
+          <span>QA 分块</span>
+        </div>
+        <span class="strategy-hint">{{ strategyDesc }}</span>
+      </div>
+    </div>
+
+    <div class="table-toolbar">
+      <h3 class="section-title">文档列表</h3>
       <a-space>
         <a-button
           type="primary"
@@ -91,7 +118,7 @@
           开始解析（{{ selectedPending.length }}）
         </a-button>
         <a-button :loading="refreshing" @click="handleRefresh" aria-label="刷新">
-          <reload-outlined aria-hidden="true" /> 刷新
+          <reload-outlined /> 刷新
         </a-button>
       </a-space>
     </div>
@@ -189,7 +216,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined, AlignLeftOutlined, ReadOutlined, ColumnWidthOutlined, FileTextOutlined, MessageOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
@@ -660,17 +687,102 @@ onUnmounted(stopPolling)
   margin-top: var(--space-1);
 }
 
+/* ── Strategy Section ── */
+.strategy-section {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #ffffff 0%, #faf8ff 100%);
+}
+
+.strategy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.strategy-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.strategy-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.strategy-advanced-btn {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+}
+
+.strategy-advanced-btn:hover {
+  color: var(--color-primary);
+}
+
+.strategy-pills {
+  display: flex;
+  gap: 6px;
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.strategy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: var(--color-bg-elevated);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  position: relative;
+  white-space: nowrap;
+}
+
+.strategy-pill:hover {
+  border-color: var(--color-primary-border);
+  color: var(--color-text-primary);
+}
+
+.strategy-pill.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.strategy-pill-badge {
+  font-size: 10px;
+  color: var(--color-accent);
+  background: var(--color-accent-bg);
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  line-height: 1.5;
+}
+
+.strategy-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ── Table Toolbar ── */
 .table-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin: var(--space-6) 0 var(--space-4);
-}
-
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
 }
 
 .section-title {
@@ -681,7 +793,39 @@ onUnmounted(stopPolling)
 }
 
 .advanced-form {
-  width: 240px;
+  width: 260px;
+  padding: var(--space-1) 0;
+}
+
+.advanced-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.advanced-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.advanced-item:last-child {
+  margin-bottom: 0;
+}
+
+.advanced-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.advanced-input {
+  width: 110px;
 }
 
 .doc-table {
