@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "rag-system"
 version = "0.1.0"
@@ -10,6 +14,7 @@ dependencies = [
     "pydantic-settings==2.9.1",
     "sqlalchemy[asyncio]==2.0.41",
     "asyncpg==0.30.0",
+    "psycopg2-binary==2.9.10",
     "alembic==1.15.2",
     "pymilvus==2.5.8",
     "minio==7.2.15",
