@@ -18,21 +18,21 @@ class TestLayoutDetector:
 
     def test_tower_detail_is_double(self):
         """塔位明细表应识别为双栏"""
-        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        doc = fitz.open("tests/data/塔位明细表.pdf")
         for pn in [2, 3, 4]:
             assert detect_page_layout(doc[pn]) == "double", f"Page {pn} should be double"
         doc.close()
 
     def test_design_doc_is_single(self):
         """设计交底文件目录页应为单栏"""
-        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        doc = fitz.open("tests/data/设计交底文件.pdf")
         for pn in [3, 4, 5, 6, 7]:
             assert detect_page_layout(doc[pn]) == "single", f"Page {pn} should be single"
         doc.close()
 
     def test_cover_page_is_single(self):
         """封面页（词数不足）应为单栏"""
-        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        doc = fitz.open("tests/data/塔位明细表.pdf")
         assert detect_page_layout(doc[0]) == "single"
         doc.close()
 
@@ -62,7 +62,7 @@ class TestHeaderFooterDetection:
 
     def test_tower_detail_has_header(self):
         """塔位明细表应检测到页眉"""
-        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        doc = fitz.open("tests/data/塔位明细表.pdf")
         zones = detect_header_footer_zones(doc)
         doc.close()
         assert len(zones) > 0
@@ -70,7 +70,7 @@ class TestHeaderFooterDetection:
 
     def test_tower_detail_has_footer(self):
         """塔位明细表应检测到页脚"""
-        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        doc = fitz.open("tests/data/塔位明细表.pdf")
         zones = detect_header_footer_zones(doc)
         doc.close()
         assert any(z[0] > 700 for z in zones)
@@ -80,12 +80,12 @@ class TestHeaderFooterDetection:
         from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
-        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        elements = parser.parse("tests/data/塔位明细表.pdf")
         assert not any("千伏直流输电线路工程" in e.content for e in elements)
 
     def test_design_doc_no_false_positives(self):
         """设计交底文件不应误检页眉页脚"""
-        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        doc = fitz.open("tests/data/设计交底文件.pdf")
         zones = detect_header_footer_zones(doc)
         doc.close()
         assert len(zones) == 0
@@ -146,21 +146,21 @@ class TestTocDetection:
 
     def test_toc_pages_in_project_plan(self):
         """设计交底文件目录检测不崩溃"""
-        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        doc = fitz.open("tests/data/设计交底文件.pdf")
         toc_pages = detect_toc_pages(doc)
         doc.close()
         assert isinstance(toc_pages, set)
 
     def test_no_toc_in_tower_detail(self):
         """塔位明细表不应检测到目录页"""
-        doc = fitz.open("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        doc = fitz.open("tests/data/塔位明细表.pdf")
         toc_pages = detect_toc_pages(doc)
         doc.close()
         assert len(toc_pages) == 0
 
     def test_no_toc_in_design_doc(self):
         """设计交底文件正文页不应被误判为目录页"""
-        doc = fitz.open("test-files/10.设计交底文件.pdf")
+        doc = fitz.open("tests/data/设计交底文件.pdf")
         toc_pages = detect_toc_pages(doc)
         doc.close()
         for pn in range(3, 10):

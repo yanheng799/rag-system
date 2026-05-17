@@ -18,16 +18,14 @@ logging.basicConfig(level=logging.INFO, format="%(name)s - %(levelname)s - %(mes
 
 TEST_FILE_640 = os.path.join(
     os.path.dirname(__file__),
-    "..",
-    "test-files",
-    "ZB-2YD-40-16-640（800截面）落地双摇臂抱杆使用说明书.docx",
+    "data",
+    "落地双摇臂抱杆-800截面.docx",
 )
 
 TEST_FILE_800 = os.path.join(
     os.path.dirname(__file__),
-    "..",
-    "test-files",
-    "ZB-2YD-50-18-800（800截面）落地双摇臂抱杆使用说明书.docx",
+    "data",
+    "落地双摇臂抱杆-800截面v2.docx",
 )
 
 

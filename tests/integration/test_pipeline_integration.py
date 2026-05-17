@@ -11,7 +11,7 @@ from src.ingestion.parsers.registry import ParserRegistry, init_parsers
 from src.ingestion.parsers.word_parser import WordParser
 from src.ingestion.table_processor.describer import TableDescriber
 
-TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
+TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
 class TestParagraphGroupingIntegration:
@@ -19,7 +19,7 @@ class TestParagraphGroupingIntegration:
 
     def test_group_pdf_elements(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
         assert len(paragraphs) > 0
         # 每个段落至少 1 个元素
@@ -28,13 +28,13 @@ class TestParagraphGroupingIntegration:
 
     def test_group_word_elements(self):
         parser = WordParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "1.哈重项目管理实施规划-1.docx"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "哈重项目管理实施规划.docx"))
         paragraphs = group_elements_by_paragraph(elements[:100])
         assert len(paragraphs) > 0
 
     def test_mixed_paragraphs_exist_in_pdf(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
         types = {detect_chunk_type(g) for g, _ in paragraphs}
         # 至少应有 text 类型
@@ -46,7 +46,7 @@ class TestChunkBuilderIntegration:
 
     def test_build_text_chunk(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
@@ -70,7 +70,7 @@ class TestChunkBuilderIntegration:
 
     def test_build_mixed_chunk(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
@@ -94,7 +94,7 @@ class TestChunkBuilderIntegration:
 
     def test_build_table_chunk(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
@@ -115,7 +115,7 @@ class TestChunkBuilderIntegration:
         from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "典型塔型吊装工况表.xlsx"))
         paragraphs = group_elements_by_paragraph(elements)
         builder = ChunkBuilder(screenshot=None, describer=TableDescriber())
 
@@ -142,7 +142,7 @@ class TestParserRegistryIntegration:
     def test_parse_via_registry(self):
         init_parsers()
         parser = ParserRegistry.get_for_file("test.pdf")
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         assert len(elements) > 0
 
 
@@ -151,7 +151,7 @@ class TestDescriberIntegration:
 
     def test_describe_pdf_table(self):
         parser = PDFParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf"))
         tables = [e for e in elements if e.elem_type == "table"]
         assert len(tables) > 0
 
@@ -163,7 +163,7 @@ class TestDescriberIntegration:
         from src.ingestion.parsers.excel_parser import ExcelParser
 
         parser = ExcelParser()
-        elements = parser.parse(os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx"))
+        elements = parser.parse(os.path.join(TEST_FILES_DIR, "典型塔型吊装工况表.xlsx"))
         assert len(elements) > 0
 
         describer = TableDescriber()

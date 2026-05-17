@@ -6,19 +6,19 @@ from src.ingestion.parsers.excel_parser import ExcelParser
 from src.ingestion.parsers.pdf_parser import PDFParser
 from src.ingestion.parsers.word_parser import WordParser
 
-TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "test-files")
+TEST_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 
 def pdf_path():
-    return os.path.join(TEST_FILES_DIR, "2.杆塔明细表.pdf")
+    return os.path.join(TEST_FILES_DIR, "杆塔明细表.pdf")
 
 
 def word_path():
-    return os.path.join(TEST_FILES_DIR, "1.哈重项目管理实施规划-1.docx")
+    return os.path.join(TEST_FILES_DIR, "哈重项目管理实施规划.docx")
 
 
 def excel_path():
-    return os.path.join(TEST_FILES_DIR, "附表2 典型塔型吊装工况表.xlsx")
+    return os.path.join(TEST_FILES_DIR, "典型塔型吊装工况表.xlsx")
 
 
 class TestPDFParserIntegration:

@@ -23,9 +23,8 @@ logger = logging.getLogger(__name__)
 
 TEST_FILE = os.path.join(
     os.path.dirname(__file__),
-    "..",
-    "test-files",
-    "ZB-2YD-40-12-480（700截面）落地双摇臂抱杆使用说明书.pdf",
+    "data",
+    "落地双摇臂抱杆-700截面.pdf",
 )
 
 

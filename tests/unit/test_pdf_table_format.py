@@ -11,7 +11,7 @@ class TestTableMarkdownFormat:
         from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
-        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        elements = parser.parse("tests/data/塔位明细表.pdf")
         tables = [e for e in elements if e.is_table]
         assert len(tables) > 0
         for t in tables:
@@ -22,7 +22,7 @@ class TestTableMarkdownFormat:
         from src.ingestion.parsers.pdf_parser import PDFParser
 
         parser = PDFParser()
-        elements = parser.parse("test-files/2.351-SA06911S-D0102 第6施工标段塔位明细表.pdf")
+        elements = parser.parse("tests/data/塔位明细表.pdf")
         tables = [e for e in elements if e.is_table]
         for t in tables[:5]:
             lines = t.content.strip().split("\n")
@@ -65,6 +65,6 @@ class TestTocFiltered:
         import re
 
         parser = PDFParser()
-        elements = parser.parse("test-files/10.设计交底文件.pdf")
+        elements = parser.parse("tests/data/设计交底文件.pdf")
         toc_lines = [e for e in elements if not e.is_table and re.search(r"\.{50,}", e.content)]
         assert len(toc_lines) == 0, f"Found TOC content: {[e.content[:60] for e in toc_lines[:3]]}"
