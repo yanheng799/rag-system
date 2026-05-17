@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
-from src.api.routers import chunks, datasets, documents, query, retrieve
+from src.api.routers import chunks, datasets, documents, images, query, retrieve
 from src.ingestion.chunkers.registry import init_chunkers
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import init_parsers
@@ -20,7 +20,7 @@ from src.retrieval.vector_search import VectorSearcher
 from src.storage.milvus_store import MilvusStore
 from src.storage.oss_store import OSSStore
 from src.storage.pg_store import PgStore
-from src.storage.signed_url_service import SignedUrlService
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,9 +48,6 @@ async def lifespan(app: FastAPI):
 
     # 初始化 Milvus Collection
     milvus_store.init_collection()
-
-    # 签名 URL 服务
-    signed_url_service = SignedUrlService(oss_store)
 
     # Embedder
     embedder = Embedder()
@@ -82,14 +79,12 @@ async def lifespan(app: FastAPI):
         llm_client=llm_client,
         prompt_builder=prompt_builder,
         doc_store=pg_store,
-        signed_url_service=signed_url_service,
     )
 
     # 组件注入到 app.state
     app.state.pg_store = pg_store
     app.state.milvus_store = milvus_store
     app.state.oss_store = oss_store
-    app.state.signed_url_service = signed_url_service
     app.state.embedder = embedder
     app.state.vector_searcher = vector_searcher
     app.state.bm25_searcher = bm25_searcher
@@ -120,6 +115,7 @@ app.add_middleware(ErrorHandlerMiddleware)
 app.include_router(chunks.router)
 app.include_router(datasets.router)
 app.include_router(documents.router)
+app.include_router(images.router)
 app.include_router(query.router)
 app.include_router(retrieve.router)
 

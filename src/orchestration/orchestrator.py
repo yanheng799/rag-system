@@ -14,7 +14,6 @@ from src.orchestration.prompt_builder import PromptBuilder
 from src.retrieval.hybrid_search import HybridSearcher
 from src.retrieval.vector_search import VectorSearcher
 from src.storage.ports import DocumentStorePort
-from src.storage.signed_url_service import SignedUrlService
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +36,12 @@ class RAGOrchestrator:
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
         doc_store: DocumentStorePort,
-        signed_url_service: SignedUrlService,
+        signed_url_service=None,
     ):
         self._searcher = searcher
         self._llm = llm_client
         self._prompt_builder = prompt_builder
         self._doc_store = doc_store
-        self._signed_url = signed_url_service
 
     async def query(
         self,
@@ -151,15 +149,14 @@ class RAGOrchestrator:
         yield {"type": "done"}
 
     def _build_response_sources(self, chunks: list[RetrievedChunk], doc_filename_map: dict[str, str]) -> list[dict]:
-        """构建响应中的 sources 列表，替换签名 URL + 真实 filename"""
+        """构建响应中的 sources 列表，替换为代理 URL + 真实 filename"""
         sources = []
         for chunk in chunks:
-            # 签名 URL 替换
             elements = []
             for elem in chunk.elements:
                 elem_dict = elem.to_dict()
                 if elem_dict.get("image_url"):
-                    elem_dict["image_url"] = self._signed_url.sign(elem_dict["image_url"])
+                    elem_dict["image_url"] = f"/api/v1/images/{elem_dict['image_url']}"
                 elements.append(elem_dict)
 
             metadata = chunk.metadata.to_dict()

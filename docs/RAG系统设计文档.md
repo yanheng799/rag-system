@@ -604,15 +604,15 @@ class RAGOrchestrator:
         # 3. 调用 LLM（通过统一接口，可热替换）
         answer = llm_client.complete(prompt)
 
-        # 4. 后处理：来源标注 + image_url 签名
+        # 4. 后处理：来源标注 + image_url 代理替换
         return post_process(answer, chunks)
 
     def post_process(self, answer, chunks):
-        # 对 image_url 生成带时效的签名 URL（权限控制）
+        # 对 image_url 替换为后端代理 URL（无过期限制）
         for chunk in chunks:
             for elem in chunk.elements:
                 if elem.image_url:
-                    elem.image_url = oss_client.sign_url(elem.image_url, expire=3600)
+                    elem.image_url = f"/api/v1/images/{elem.image_url}"
         return build_response(answer, chunks)
 ```
 
@@ -647,6 +647,7 @@ class RAGOrchestrator:
 | POST | `/api/v1/chunks/{chunk_id}/split` | 按元素索引拆分分块（支持 `link_group` 参数） |
 | POST | `/api/v1/chunks/link` | 关联多个分块到同一 group_id |
 | POST | `/api/v1/chunks/unlink` | 取消分块的 group_id 关联 |
+| GET | `/api/v1/images/{path}` | 图片代理（根据内部 OSS 路径返回图片，无需签名） |
 
 ---
 
@@ -737,7 +738,7 @@ class RAGOrchestrator:
 |------|------|------|
 | `type` | string | 元素类型：`text` / `table` / `image` |
 | `content` | string | 文字原文、表格语义描述或图片占位文本，用于 LLM 推理 |
-| `image_url` | string / null | 表格截图或文档图片的签名 URL（1小时有效），文字元素为 null |
+| `image_url` | string / null | 表格截图或文档图片的代理 URL（`/api/v1/images/{oss_path}`），无过期限制，文字元素为 null |
 
 ### 4.3 前端渲染逻辑
 
@@ -791,7 +792,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 | 表格截图（Word） | python-docx → pymupdf（转 PDF 后截图） | 转 PDF 后统一截图流程 |
 | 表格理解（Phase 1） | 规则提取 | 提取表头行，生成"列名:值"格式描述 |
 | 表格理解（Phase 3） | Qwen-VL via DashScope | 视觉语言模型，理解合并单元格等复杂结构 |
-| 对象存储 | MinIO（私有）/ S3（云端） | 存储原始文档原件 + 表格截图，URL 签名保障安全 |
+| 对象存储 | MinIO（私有）/ S3（云端） | 存储原始文档原件 + 表格截图 + 文档图片，通过后端代理端点访问，无需暴露内部地址 |
 | 向量数据库 | Milvus (pymilvus) | HNSW 索引，COSINE 度量，高性能 |
 | 文档存储 | PostgreSQL (SQLAlchemy 2.0 async) | 存储原文、分块内容、元数据 |
 | 缓存 | Redis | Phase 4 引入：查询缓存 + Embedding 缓存 |
@@ -877,7 +878,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 **Milvus**
 - 使用 pymilvus 同步客户端，Phase 1 无需 async wrapper
 - `elements` 字段 JSON 序列化后存为 VARCHAR，召回时反序列化还原
-- `image_url` 在后处理阶段统一替换为签名 URL，原始路径不对外暴露
+- `image_url` 在后处理阶段统一替换为后端代理 URL `/api/v1/images/{oss_path}`，原始 MinIO 路径不对外暴露
 - 通过 StoragePort 接口抽象，方便切换 Qdrant 等替代方案
 
 **PostgreSQL (SQLAlchemy 2.0 async ORM)**
@@ -904,7 +905,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 |--------|---------|
 | 可观测性 | 每个节点记录耗时、召回数量、模型调用次数 |
 | 缓存 | 查询结果缓存 + Embedding 缓存，降低成本和延迟 |
-| 权限控制 | API 层 JWT / API Key 鉴权；文档级 ACL 表记录用户与文档的访问关系，检索时自动注入 `doc_id in [...]` 过滤条件；image_url 使用签名 URL（1小时有效），签名逻辑统一由 `SignedUrlService` 模块管理 |
+| 权限控制 | API 层 JWT / API Key 鉴权；文档级 ACL 表记录用户与文档的访问关系，检索时自动注入 `doc_id in [...]` 过滤条件；image_url 通过后端代理端点 `/api/v1/images/{path}` 访问，后端从 MinIO 读取并返回图片，无需签名，无过期问题 |
 | 配置中心 | 分块大小、Top-K、模型选择、表格处理策略等参数运行时可调 |
 | 错误降级 | 检索失败 → 返回兜底回答；LLM 超时 → 重试或切换备用模型 |
 
@@ -1006,7 +1007,7 @@ PDF / Word / Excel / TXT / Markdown / CSV 文档上传
 - **升级 LLM** → 修改 `LLMClient` 配置项，切换模型端点；`FallbackLLMClient` 自动降级到备用模型
 - **优化检索策略** → 替换 Pipeline 中的单个节点，其余节点不受影响；RRF 权重通过配置中心运行时调整
 - **增加新接口** → 在用户交互层新增 Handler，通过鉴权中间件统一保护
-- **切换对象存储** → 修改 `ObjectStoragePort` 实现，所有签名 URL 生成统一由 `SignedUrlService` 封装
+- **切换对象存储** → 修改 `ObjectStoragePort` 实现，图片代理端点统一由 `/api/v1/images/{path}` 路由转发
 - **扩展元数据字段** → 在 `ChunkMetadata` 中新增字段，同步更新 Milvus Schema 和响应结构
 - **扩展权限模型** → 在 `document_acl` 表中新增权限维度（如部门、标签），`ACLFilter` 自动适配
 

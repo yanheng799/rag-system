@@ -111,35 +111,36 @@ class TestValidateMergeSameDoc:
 
 
 class TestValidateMergeNoGap:
-    """合并校验：选定范围内无遗漏"""
+    """合并校验：选中的分块在文档分块序列中连续，中间无遗漏"""
 
-    def test_no_gap_passes(self):
+    def test_contiguous_passes(self):
         all_chunks = [
             _FakeChunk("c0", page=1, chunk_index=0),
             _FakeChunk("c1", page=1, chunk_index=1),
             _FakeChunk("c2", page=1, chunk_index=2),
         ]
-        _validate_merge_no_gap(["c0", "c1"], all_chunks, 1, 0, 1, 1)
+        _validate_merge_no_gap(["c0", "c1"], all_chunks)
 
-    def test_gap_raises_400(self):
+    def test_gap_in_sorted_order_raises_400(self):
         all_chunks = [
             _FakeChunk("c0", page=1, chunk_index=0),
             _FakeChunk("c1", page=1, chunk_index=1),
             _FakeChunk("c2", page=1, chunk_index=2),
         ]
         with pytest.raises(HTTPException) as exc:
-            _validate_merge_no_gap(["c0", "c2"], all_chunks, 1, 0, 1, 2)
+            _validate_merge_no_gap(["c0", "c2"], all_chunks)
         assert exc.value.status_code == 400
         assert "未选中" in exc.value.detail
         assert "c1" in exc.value.detail
 
-    def test_outside_range_ignored(self):
+    def test_non_adjacent_outside_range_ok(self):
         all_chunks = [
             _FakeChunk("c0", page=1, chunk_index=0),
             _FakeChunk("c1", page=1, chunk_index=1),
-            _FakeChunk("c2", page=1, chunk_index=2),
+            _FakeChunk("c2", page=1, chunk_index=5),
         ]
-        _validate_merge_no_gap(["c0", "c1"], all_chunks, 1, 0, 1, 1)
+        # c0 和 c1 相邻，c2 在排序中隔开但不影响
+        _validate_merge_no_gap(["c0", "c1"], all_chunks)
 
     def test_cross_page_gap(self):
         all_chunks = [
@@ -148,8 +149,19 @@ class TestValidateMergeNoGap:
             _FakeChunk("c2", page=2, chunk_index=0),
         ]
         with pytest.raises(HTTPException) as exc:
-            _validate_merge_no_gap(["c0", "c2"], all_chunks, 1, 0, 2, 0)
+            _validate_merge_no_gap(["c0", "c2"], all_chunks)
         assert "c1" in exc.value.detail
+
+    def test_non_sequential_indices_after_merge(self):
+        """合并后 chunk_index 可能不连续（如 0, 1, 5, 6），但仍可按排序顺序检查"""
+        all_chunks = [
+            _FakeChunk("c0", page=1, chunk_index=0),
+            _FakeChunk("c1", page=1, chunk_index=1),
+            _FakeChunk("c5", page=1, chunk_index=5),
+            _FakeChunk("c6", page=1, chunk_index=6),
+        ]
+        # c1 和 c5 在排序中相邻，应允许合并
+        _validate_merge_no_gap(["c1", "c5"], all_chunks)
 
 
 # ---- _validate_char_limit ----

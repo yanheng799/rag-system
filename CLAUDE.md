@@ -23,7 +23,7 @@ Five-layer architecture, each layer with a single responsibility:
 - **MixedChunk**: A single chunk can contain interleaved text and table elements. `full_text` is vectorized; `image_url` stores table screenshots but never enters the LLM prompt
 - **Chunk ID format**: `{doc_id}_p{page}_c{chunk_index}`
 - **StoragePort pattern**: Abstract base classes (`VectorStorePort`, `DocumentStorePort`, `ObjectStorePort`, `CachePort`) in `src/storage/ports.py` decouple business logic from storage implementations
-- **Signed URLs**: All `image_url` in API responses are MinIO signed URLs (1-hour expiry) via `SignedUrlService`. Internal paths never exposed externally
+- **Image proxy**: All `image_url` in API responses are proxied through `/api/v1/images/{path}`. Backend fetches from MinIO and returns the image, no expiration issues. Internal MinIO paths never exposed externally
 - **Parser plugin registry**: `BaseParser` implementations register by file type; `ParserRegistry` dispatches by extension
 - **Paragraph boundary detection**: Custom logic groups flat Element lists by coordinate proximity + semantic cues before chunking
 - **Table description**: Rule-based extraction only (列名:值 format). Qwen-VL deferred to later phase
@@ -65,11 +65,12 @@ ruff format src/ tests/
 |--------|------|---------|
 | POST | `/api/v1/documents` | Upload document (multipart/form-data) |
 | GET | `/api/v1/documents` | List documents |
-| POST | `/api/v1/query` | Query (JSON), returns answer + sources + signed image URLs |
+| POST | `/api/v1/query` | Query (JSON), returns answer + sources + proxied image URLs |
 | WebSocket | `/api/v1/query/ws` | Streaming query |
 | POST | `/api/v1/retrieve` | Retrieval — specify strategy (vector/BM25/hybrid) and weights |
 | GET | `/api/v1/chunks` | List chunks |
 | GET | `/api/v1/datasets` | List datasets |
+| GET | `/api/v1/images/{path}` | Image proxy — returns image from MinIO by internal path |
 
 ## Directory Structure
 

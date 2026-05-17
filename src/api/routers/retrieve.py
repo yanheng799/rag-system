@@ -52,7 +52,6 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
     )
     retrieval_ms = int((time.time() - start_time) * 1000)
 
-    signed_url_service = request.app.state.signed_url_service
     pg_store = request.app.state.pg_store
 
     # 批量查询文档的真实 filename
@@ -71,12 +70,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         meta_dict["filename"] = doc_filename_map.get(chunk.metadata.doc_id, chunk.metadata.source)
         metadata = ChunkMetadataResult(**meta_dict)
 
-        image_urls = []
-        for url in chunk.image_urls:
-            if signed_url_service:
-                image_urls.append(signed_url_service.sign(url))
-            else:
-                image_urls.append(url)
+        image_urls = [f"/api/v1/images/{url}" for url in chunk.image_urls]
 
         scores = ChunkScores(
             vector_score=chunk.vector_score,
