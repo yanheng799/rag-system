@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from src.api.deps import get_current_user
 from src.api.schemas.query import QueryRequest, QueryResponse
 
-router = APIRouter(prefix="/api/v1", tags=["问答"])
+router = APIRouter(prefix="/api/v1", tags=["问答"], dependencies=[Depends(get_current_user)])
 
 
 async def resolve_filters(

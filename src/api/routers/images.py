@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.responses import Response
 
-router = APIRouter(prefix="/api/v1", tags=["图片代理"])
+from src.api.deps import get_current_user
+
+router = APIRouter(prefix="/api/v1", tags=["图片代理"], dependencies=[Depends(get_current_user)])
 
 IMAGE_CONTENT_TYPES: dict[str, str] = {
     "png": "image/png",

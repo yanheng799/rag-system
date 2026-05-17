@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -32,9 +33,13 @@ def _make_app(oss_store=None) -> tuple[FastAPI, TestClient]:
     return app, TestClient(app)
 
 
+_auth_disabled = patch("src.api.deps.settings.auth_enabled", False)
+
+
 # ---- 正常返回图片 ----
 
 
+@_auth_disabled
 class TestImageProxy:
     """GET /api/v1/images/{path} 代理转发图片"""
 
@@ -88,6 +93,7 @@ class TestImageProxy:
 # ---- 404 不存在的图片 ----
 
 
+@_auth_disabled
 class TestImageProxyNotFound:
 
     def test_missing_image_returns_404(self):

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from src.api.deps import get_current_user
 from src.api.schemas.retrieve import (
     ChunkMetadataResult,
     ChunkScores,
@@ -14,7 +15,7 @@ from src.api.schemas.retrieve import (
     RetrieveResponse,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["检索"])
+router = APIRouter(prefix="/api/v1", tags=["检索"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/retrieve", response_model=RetrieveResponse, summary="检索接口")
