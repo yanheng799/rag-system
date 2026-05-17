@@ -1,11 +1,14 @@
 <template>
   <div class="page-container">
-    <a-page-header
-      :title="dataset?.name || '加载中…'"
-      :sub-title="dataset?.description"
-      @back="router.push('/datasets')"
-    >
-    </a-page-header>
+    <div class="detail-header">
+      <a-button type="text" @click="router.push('/datasets')" class="back-btn">
+        <arrow-left-outlined /> 返回
+      </a-button>
+      <div class="detail-info" v-if="dataset">
+        <h1 class="detail-name">{{ dataset.name }}</h1>
+        <p class="detail-desc" v-if="dataset.description">{{ dataset.description }}</p>
+      </div>
+    </div>
 
     <a-skeleton v-if="!dataset" active :paragraph="{ rows: 2 }" />
 
@@ -19,16 +22,20 @@
       :disabled="uploading"
     >
       <div class="compact-upload-inner">
-        <upload-outlined aria-hidden="true" />
-        <span>拖拽文件到此处，或点击上传</span>
-        <span class="upload-formats">PDF / Word / Excel / TXT / MD / CSV，单文件最大 50MB</span>
+        <div class="upload-icon-wrap">
+          <upload-outlined aria-hidden="true" />
+        </div>
+        <div class="upload-text">
+          <span class="upload-main">拖拽文件到此处，或点击上传</span>
+          <span class="upload-formats">PDF / Word / Excel / TXT / MD / CSV，单文件最大 50MB</span>
+        </div>
       </div>
     </a-upload-dragger>
 
     <div v-if="uploadQueue.length > 0" class="upload-queue">
       <div v-for="item in uploadQueue" :key="item.uid" class="upload-item">
         <div class="upload-item-info">
-          <file-outlined aria-hidden="true" />
+          <file-outlined aria-hidden="true" class="upload-file-icon" />
           <span class="upload-filename">{{ item.filename }}</span>
           <a-tag v-if="item.status === 'uploading'" color="processing">上传中</a-tag>
           <a-tag v-else-if="item.status === 'done'" color="success">已上传</a-tag>
@@ -41,7 +48,7 @@
 
     <div class="table-toolbar">
       <div class="toolbar-left">
-        <h3 style="margin: 0">文档列表</h3>
+        <h3 class="section-title">文档列表</h3>
         <a-select v-model:value="chunkForm.strategy" style="width: 130px" size="small">
           <a-select-option value="paragraph">段落分块</a-select-option>
           <a-select-option value="heading">标题分块</a-select-option>
@@ -96,19 +103,20 @@
       :row-selection="rowSelection"
       row-key="doc_id"
       size="small"
+      class="doc-table"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'status'">
           <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
         </template>
         <template v-if="column.key === 'file_type'">
-          <span>{{ record.file_type || '-' }}</span>
+          <span class="file-type-badge">{{ record.file_type || '-' }}</span>
         </template>
         <template v-if="column.key === 'file_size'">
-          <span>{{ formatFileSize(record.file_size) }}</span>
+          <span class="tabular-nums">{{ formatFileSize(record.file_size) }}</span>
         </template>
         <template v-if="column.key === 'chunk_count'">
-          <span>{{ record.chunk_count || '-' }}</span>
+          <span class="tabular-nums">{{ record.chunk_count || '-' }}</span>
         </template>
         <template v-if="column.key === 'chunk_options'">
           <template v-if="record.chunk_options">
@@ -117,13 +125,13 @@
               <span class="chunk-params-text">{{ formatChunkParams(record.chunk_options) }}</span>
             </a-tooltip>
           </template>
-          <span v-else>-</span>
+          <span v-else class="text-muted">-</span>
         </template>
         <template v-if="column.key === 'error_msg'">
           <a-tooltip v-if="record.error_msg" :title="record.error_msg">
             <span class="error-text">{{ record.error_msg }}</span>
           </a-tooltip>
-          <span v-else>-</span>
+          <span v-else class="text-muted">-</span>
         </template>
         <template v-if="column.key === 'action'">
           <a-space :size="4">
@@ -158,8 +166,8 @@
       </template>
     </a-table>
 
-    <a-modal v-model:open="editModalVisible" title="编辑知识库" @ok="handleEditSubmit" :confirm-loading="editSubmitting">
-      <a-form layout="vertical" :model="editForm" :rules="editFormRules" ref="editFormRef">
+    <a-modal v-model:open="editModalVisible" title="编辑知识库" @ok="handleEditSubmit" :confirm-loading="editSubmitting" centered>
+      <a-form layout="vertical" :model="editForm" :rules="editFormRules" ref="editFormRef" style="margin-top: 16px">
         <a-form-item label="名称" name="name">
           <a-input v-model:value="editForm.name" name="name" autocomplete="off" />
         </a-form-item>
@@ -176,7 +184,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
@@ -518,20 +526,88 @@ onUnmounted(stopPolling)
 
 <style scoped>
 .page-container {
-  padding: 0 var(--space-6) var(--space-6);
+  padding: var(--space-6) var(--space-8);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.back-btn {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+}
+
+.back-btn:hover {
+  color: var(--color-primary);
+}
+
+.detail-info {
+  flex: 1;
+}
+
+.detail-name {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.detail-desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
 }
 
 .compact-uploader :deep(.ant-upload-drag) {
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--color-border-strong);
+  background: var(--color-bg-elevated);
+  transition: all var(--transition-normal);
+}
+
+.compact-uploader :deep(.ant-upload-drag:hover) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-bg);
 }
 
 .compact-upload-inner {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  gap: var(--space-4);
+}
+
+.upload-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.upload-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upload-main {
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .upload-formats {
@@ -539,31 +615,12 @@ onUnmounted(stopPolling)
   font-size: var(--font-size-xs);
 }
 
-.error-text {
-  color: var(--color-error);
-  font-size: var(--font-size-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: inline-block;
-  max-width: 140px;
-}
-
-.chunk-params-text {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-xs);
-}
-
-.action-btn-info { color: #1677ff !important; }
-.action-btn-purple { color: #722ed1 !important; }
-.action-btn-primary { color: #52c41a !important; }
-.action-btn-warning { color: #fa8c16 !important; }
-
 .upload-queue {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
 }
 
 .upload-item {
@@ -579,6 +636,10 @@ onUnmounted(stopPolling)
   align-items: center;
   gap: var(--space-2);
   font-size: var(--font-size-sm);
+}
+
+.upload-file-icon {
+  color: var(--color-primary);
 }
 
 .upload-filename {
@@ -598,16 +659,59 @@ onUnmounted(stopPolling)
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: var(--space-4) 0;
+  margin: var(--space-6) 0 var(--space-4);
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.section-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .advanced-form {
   width: 240px;
 }
+
+.doc-table {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.file-type-badge {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.error-text {
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 140px;
+}
+
+.chunk-params-text {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.text-muted {
+  color: var(--color-text-tertiary);
+}
+
+.action-btn-info { color: var(--color-primary) !important; }
+.action-btn-purple { color: #7c3aed !important; }
+.action-btn-primary { color: var(--color-success) !important; }
+.action-btn-warning { color: var(--color-warning) !important; }
 </style>

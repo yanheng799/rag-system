@@ -49,20 +49,29 @@ def _validate_merge_same_doc(chunks: list) -> str:
 def _validate_merge_no_gap(
     body_chunk_ids: list[str],
     all_chunks: list,
-    min_page: int,
-    min_idx: int,
-    max_page: int,
-    max_idx: int,
 ) -> None:
-    """校验选定范围内无遗漏 chunk"""
+    """校验选中的分块在文档分块序列中连续，中间无遗漏 chunk"""
     selected_ids = set(body_chunk_ids)
-    for c in all_chunks:
-        pos = (c.page, c.chunk_index)
-        if (min_page, min_idx) <= pos <= (max_page, max_idx) and c.chunk_id not in selected_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"选定范围内存在未选中的分块: {c.chunk_id}，请先合并或移除",
-            )
+    sorted_all = sorted(all_chunks, key=lambda c: (c.page, c.chunk_index))
+
+    # 找到选中分块在排序列表中的位置
+    selected_positions = []
+    for i, c in enumerate(sorted_all):
+        if c.chunk_id in selected_ids:
+            selected_positions.append(i)
+
+    if not selected_positions:
+        return
+
+    first = selected_positions[0]
+    last = selected_positions[-1]
+    if len(selected_positions) != last - first + 1:
+        for i in range(first, last + 1):
+            if sorted_all[i].chunk_id not in selected_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"选定范围内存在未选中的分块: {sorted_all[i].chunk_id}，请先合并或移除",
+                )
 
 
 def _validate_char_limit(char_count: int) -> None:
@@ -357,13 +366,9 @@ async def merge_chunks(request: Request, body: MergeRequest):
 
     # 3. 校验：选定范围内无遗漏 chunk
     sorted_chunks = sorted(chunks, key=lambda c: (c.page, c.chunk_index))
-    min_page, min_idx = sorted_chunks[0].page, sorted_chunks[0].chunk_index
-    max_page, max_idx = sorted_chunks[-1].page, sorted_chunks[-1].chunk_index
 
     all_in_range, _ = await pg_store.list_chunks_by_doc(doc_id, page=1, size=10000)
-    _validate_merge_no_gap(
-        body.chunk_ids, all_in_range, min_page, min_idx, max_page, max_idx,
-    )
+    _validate_merge_no_gap(body.chunk_ids, all_in_range)
 
     # 4. 合并数据
     merged_elements = []

@@ -49,6 +49,7 @@ class IngestionPipeline:
         file_type: str,
         skip_oss_upload: bool = False,
         chunk_options=None,
+        original_filename: str | None = None,
     ) -> None:
         """
         完整摄入流程：
@@ -67,7 +68,7 @@ class IngestionPipeline:
             logger.info("开始摄入文档: doc_id=%s, file=%s", doc_id, file_path)
 
             # 2. 上传原始文件至 OSS
-            filename = os.path.basename(file_path)
+            filename = original_filename or os.path.basename(file_path)
             if not skip_oss_upload:
                 with open(file_path, "rb") as f:
                     file_data = f.read()

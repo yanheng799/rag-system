@@ -1,10 +1,13 @@
 <template>
   <div class="page-container">
-    <a-page-header
-      :title="breadcrumb"
-      @back="router.back()"
-    >
-      <template #extra>
+    <div class="detail-header">
+      <a-button type="text" @click="router.back()" class="back-btn">
+        <arrow-left-outlined /> 返回
+      </a-button>
+      <div class="detail-info">
+        <h2 class="page-title" style="margin: 0">{{ breadcrumb }}</h2>
+      </div>
+      <div class="header-actions">
         <a-button
           type="primary"
           :disabled="selectedKeys.length < 2"
@@ -25,8 +28,8 @@
         >
           删除选中
         </a-button>
-      </template>
-    </a-page-header>
+      </div>
+    </div>
 
     <a-table
       :columns="columns"
@@ -36,11 +39,12 @@
       :row-selection="{ selectedRowKeys: selectedKeys, onChange: (keys: string[]) => selectedKeys = keys }"
       row-key="chunk_id"
       size="small"
+      class="chunk-table"
       @change="handleTableChange"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'chunk_id'">
-          <router-link :to="chunkDetailLink(record.chunk_id)">
+          <router-link :to="chunkDetailLink(record.chunk_id)" class="chunk-id-link">
             {{ record.chunk_id.slice(0, 20) }}…
           </router-link>
         </template>
@@ -64,6 +68,7 @@
       title="拆分分块"
       @ok="handleSplit"
       :confirm-loading="splitting"
+      centered
     >
       <p>将在指定字符位置拆分此分块为两个。</p>
       <a-input-number
@@ -94,6 +99,7 @@ import {
 } from '@/api/chunks'
 import { getDocumentStatus } from '@/api/documents'
 import { getDataset } from '@/api/datasets'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -113,7 +119,7 @@ const selectedKeys = ref<string[]>([])
 const splitModalVisible = ref(false)
 const splitting = ref(false)
 const splitAt = ref(0)
-const linkAfterSplit = ref(true)
+const linkAfterSplit = ref(false)
 const currentChunk = ref<ChunkListItem | null>(null)
 
 const columns = [
@@ -208,7 +214,7 @@ async function handleLink() {
 function openSplitModal(chunk: ChunkListItem) {
   currentChunk.value = chunk
   splitAt.value = Math.floor(chunk.char_count / 2)
-  linkAfterSplit.value = true
+  linkAfterSplit.value = false
   splitModalVisible.value = true
 }
 
@@ -249,11 +255,50 @@ onMounted(() => {
 
 <style scoped>
 .page-container {
-  padding: 0 var(--space-6) var(--space-6);
+  padding: var(--space-6) var(--space-8);
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.back-btn {
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+}
+
+.back-btn:hover {
+  color: var(--color-primary);
+}
+
+.detail-info {
+  flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chunk-table {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.chunk-id-link {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
 }
 
 .text-preview {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+  line-height: 1.5;
 }
 </style>

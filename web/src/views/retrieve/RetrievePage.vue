@@ -1,7 +1,10 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2 class="page-title">分块检索</h2>
+      <div>
+        <h2 class="page-title">分块检索</h2>
+        <p class="page-subtitle">按向量、BM25 或混合模式检索文档分块</p>
+      </div>
     </div>
 
     <div class="filter-bar">
@@ -27,7 +30,7 @@
     </div>
 
     <div class="search-bar">
-      <a-radio-group v-model:value="searchMode" button-style="solid">
+      <a-radio-group v-model:value="searchMode" button-style="solid" class="mode-group">
         <a-radio-button value="hybrid">混合检索</a-radio-button>
         <a-radio-button value="vector">向量检索</a-radio-button>
         <a-radio-button value="bm25">BM25</a-radio-button>
@@ -38,16 +41,21 @@
         placeholder="输入检索内容"
         @pressEnter="handleRetrieve"
         style="flex: 1"
+        size="large"
       />
-      <a-button type="primary" :loading="loading" @click="handleRetrieve" :disabled="!question.trim()">
-        检索
+      <a-button type="primary" :loading="loading" @click="handleRetrieve" :disabled="!question.trim()" size="large">
+        <search-outlined /> 检索
       </a-button>
     </div>
 
     <div v-if="result" class="result-meta">
-      <span>共 {{ result.total_retrieved }} 条结果</span>
-      <span>检索模式: {{ searchMode }}</span>
-      <span class="tabular-nums">耗时: {{ result.retrieval_ms.toFixed(0) }}ms</span>
+      <span class="result-stat">
+        <span class="result-value">{{ result.total_retrieved }}</span> 条结果
+      </span>
+      <span class="result-divider">·</span>
+      <span>{{ searchMode }} 模式</span>
+      <span class="result-divider">·</span>
+      <span class="tabular-nums">耗时 {{ result.retrieval_ms.toFixed(0) }}ms</span>
     </div>
 
     <a-empty v-if="!loading && result && result.chunks.length === 0" description="未找到相关分块" />
@@ -56,10 +64,10 @@
       <a-card v-for="chunk in result?.chunks" :key="chunk.metadata.chunk_id" class="chunk-card" size="small">
         <template #title>
           <div class="chunk-card-title">
-            <a-tag color="blue">#{{ chunk.rank }}</a-tag>
-            <span>{{ chunk.metadata.filename }}</span>
+            <span class="rank-badge">#{{ chunk.rank }}</span>
+            <span class="chunk-filename">{{ chunk.metadata.filename }}</span>
             <span class="chunk-meta">第 {{ chunk.metadata.page }} 页 · {{ chunk.metadata.char_count }} 字</span>
-            <router-link :to="`/chunks/${chunk.metadata.chunk_id}`" class="detail-link">详情</router-link>
+            <router-link :to="`/chunks/${chunk.metadata.chunk_id}`" class="detail-link">详情 →</router-link>
           </div>
         </template>
         <div class="chunk-scores">
@@ -102,6 +110,7 @@ import { retrieveChunks, type RetrieveResponse } from '@/api/retrieve'
 import { listDatasets, type DatasetResponse } from '@/api/datasets'
 import { listDocuments, type DocumentListItem } from '@/api/documents'
 import { renderMarkdown } from '@/utils/markdown'
+import { SearchOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -213,42 +222,75 @@ onMounted(async () => {
 
 <style scoped>
 .page-container {
-  padding: var(--space-6);
+  padding: var(--space-8) var(--space-6);
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.page-header {
-  margin-bottom: var(--space-6);
-}
-
-.page-title {
-  margin: 0;
+.page-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
 }
 
 .filter-bar {
   display: flex;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .search-bar {
   display: flex;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-6);
   align-items: center;
+}
+
+.mode-group {
+  flex-shrink: 0;
 }
 
 .result-meta {
   display: flex;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.result-stat {
+  font-weight: 500;
+}
+
+.result-value {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.result-divider {
+  color: var(--color-text-tertiary);
 }
 
 .chunk-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
+}
+
+.chunk-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg) !important;
+  transition: all var(--transition-normal);
+}
+
+.chunk-card:hover {
+  border-color: var(--color-primary-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .chunk-card-title {
@@ -256,6 +298,24 @@ onMounted(async () => {
   align-items: center;
   gap: var(--space-2);
   font-size: var(--font-size-sm);
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.chunk-filename {
+  font-weight: 500;
+  color: var(--color-text-primary);
 }
 
 .chunk-meta {
@@ -266,6 +326,14 @@ onMounted(async () => {
 .detail-link {
   margin-left: auto;
   font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: opacity var(--transition-fast);
+}
+
+.detail-link:hover {
+  opacity: 0.8;
 }
 
 .chunk-scores {
@@ -273,7 +341,7 @@ onMounted(async () => {
 }
 
 .chunk-text {
-  line-height: 1.6;
+  line-height: 1.7;
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   overflow-y: auto;
@@ -292,13 +360,13 @@ onMounted(async () => {
   left: 0;
   right: 0;
   height: 48px;
-  background: linear-gradient(transparent, var(--color-bg-base));
+  background: linear-gradient(transparent, var(--color-bg-elevated));
   pointer-events: none;
 }
 
 .chunk-images {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
   display: flex;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 </style>

@@ -20,17 +20,21 @@ SYSTEM_PROMPT = """你是一个严谨的电力工程领域问答助手。
 class PromptBuilder:
     """将检索结果和用户问题组装为 LLM Messages"""
 
-    def build(self, question: str, chunks: list[RetrievedChunk]) -> list[dict]:
+    def __init__(self, doc_store=None):
+        self._doc_store = doc_store
+
+    def build(self, question: str, chunks: list[RetrievedChunk], doc_filename_map: dict[str, str] | None = None) -> list[dict]:
         """
         构建 messages 列表。
 
         参考资料格式：
-        [来源{n} - {source} 第{page}页 - {chunk_type}]
+        [来源{n} - {filename} 第{page}页 - {chunk_type}]
         {element.content}  # image_url 不包含在内
         """
         context_parts = []
         for idx, chunk in enumerate(chunks, 1):
-            header = f"[来源{idx} - {chunk.metadata.source} 第{chunk.metadata.page}页 - {chunk.metadata.chunk_type}]"
+            source_name = (doc_filename_map or {}).get(chunk.metadata.doc_id, chunk.metadata.source)
+            header = f"[来源{idx} - {source_name} 第{chunk.metadata.page}页 - {chunk.metadata.chunk_type}]"
             # 只用 content，image_url 不进入 Prompt
             element_contents = []
             for elem in chunk.elements:

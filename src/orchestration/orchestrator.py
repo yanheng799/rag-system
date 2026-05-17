@@ -67,8 +67,16 @@ class RAGOrchestrator:
         chunks = self._searcher.search(question, top_k=top_k, filters=filters)
         retrieval_ms = int((time.time() - retrieval_start) * 1000)
 
+        # 1.5 批量查询文档的真实 filename（用于 Prompt 和响应）
+        unique_doc_ids = list({c.metadata.doc_id for c in chunks})
+        doc_filename_map: dict[str, str] = {}
+        for did in unique_doc_ids:
+            doc = await self._doc_store.get_document(did)
+            if doc:
+                doc_filename_map[did] = doc.filename
+
         # 2. 构建 Prompt
-        messages = self._prompt_builder.build(question, chunks)
+        messages = self._prompt_builder.build(question, chunks, doc_filename_map)
 
         # 3. 调用 LLM
         llm_start = time.time()
@@ -76,7 +84,7 @@ class RAGOrchestrator:
         llm_ms = int((time.time() - llm_start) * 1000)
 
         # 4. 后处理：签名 URL 替换 + 真实 filename
-        sources = await self._build_response_sources(chunks)
+        sources = self._build_response_sources(chunks, doc_filename_map)
 
         total_ms = int((time.time() - start_time) * 1000)
 
@@ -122,19 +130,7 @@ class RAGOrchestrator:
         """
         # 检索
         chunks = self._searcher.search(question, top_k=top_k, filters=filters)
-        messages = self._prompt_builder.build(question, chunks)
 
-        # 流式 LLM
-        for token in self._llm.complete(messages, stream=True):
-            yield {"type": "token", "content": token}
-
-        # 来源
-        sources = await self._build_response_sources(chunks)
-        yield {"type": "sources", "sources": sources}
-        yield {"type": "done"}
-
-    async def _build_response_sources(self, chunks: list[RetrievedChunk]) -> list[dict]:
-        """构建响应中的 sources 列表，替换签名 URL + 真实 filename"""
         # 批量查询文档的真实 filename
         unique_doc_ids = list({c.metadata.doc_id for c in chunks})
         doc_filename_map: dict[str, str] = {}
@@ -143,6 +139,19 @@ class RAGOrchestrator:
             if doc:
                 doc_filename_map[did] = doc.filename
 
+        messages = self._prompt_builder.build(question, chunks, doc_filename_map)
+
+        # 流式 LLM
+        for token in self._llm.complete(messages, stream=True):
+            yield {"type": "token", "content": token}
+
+        # 来源
+        sources = self._build_response_sources(chunks, doc_filename_map)
+        yield {"type": "sources", "sources": sources}
+        yield {"type": "done"}
+
+    def _build_response_sources(self, chunks: list[RetrievedChunk], doc_filename_map: dict[str, str]) -> list[dict]:
+        """构建响应中的 sources 列表，替换签名 URL + 真实 filename"""
         sources = []
         for chunk in chunks:
             # 签名 URL 替换
