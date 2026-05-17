@@ -30,10 +30,22 @@
         </div>
         <!-- Word HTML rendering -->
         <div v-else-if="docInfo?.file_type === 'docx' && wordHtml" class="word-content" v-html="wordHtml"></div>
+        <!-- Excel sheet tabs + table rendering -->
+        <div v-else-if="docInfo?.file_type === 'xlsx' && excelSheets.length" class="excel-viewer">
+          <div class="excel-tabs">
+            <button
+              v-for="(name, i) in excelSheets"
+              :key="name"
+              :class="['excel-tab', { active: activeSheet === i }]"
+              @click="activeSheet = i"
+            >{{ name }}</button>
+          </div>
+          <div class="excel-table-wrap" v-html="excelHtml[activeSheet]"></div>
+        </div>
         <!-- Markdown / TXT rendering -->
         <div v-else-if="textContent" class="text-content markdown-body" v-html="renderMarkdown(textContent)"></div>
         <!-- Placeholder -->
-        <div v-else-if="docInfo && !['pdf', 'docx', 'md', 'txt', 'csv'].includes(docInfo.file_type || '')" class="doc-placeholder">
+        <div v-else-if="docInfo && !['pdf', 'docx', 'md', 'txt', 'csv', 'xlsx'].includes(docInfo.file_type || '')" class="doc-placeholder">
           <div class="placeholder-icon">
             <file-text-outlined style="font-size: 40px; opacity: 0.4" />
           </div>
@@ -145,6 +157,7 @@ import {
 } from '@ant-design/icons-vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import mammoth from 'mammoth/mammoth.browser.js'
+import * as XLSX from 'xlsx'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -166,9 +179,12 @@ const viewportRef = ref<HTMLElement | null>(null)
 const detailCache = ref<Record<string, ChunkDetail>>({})
 const wordHtml = ref('')
 const textContent = ref('')
+const excelSheets = ref<string[]>([])
+const excelHtml = ref<string[]>([])
+const activeSheet = ref(0)
 
 const fileTypeLabel = computed(() => {
-  const map: Record<string, string> = { docx: 'Word 文档', md: 'Markdown', txt: '纯文本', csv: 'CSV' }
+  const map: Record<string, string> = { docx: 'Word 文档', md: 'Markdown', txt: '纯文本', csv: 'CSV', xlsx: 'Excel' }
   return map[docInfo.value?.file_type || ''] || docInfo.value?.file_type?.toUpperCase() || ''
 })
 
@@ -260,6 +276,8 @@ async function fetchData() {
       await loadPdf()
     } else if (doc.file_type === 'docx') {
       await loadWord()
+    } else if (doc.file_type === 'xlsx') {
+      await loadExcel()
     } else if (['md', 'txt', 'csv'].includes(doc.file_type || '')) {
       await loadText()
     }
@@ -289,6 +307,23 @@ async function loadWord() {
 async function loadText() {
   const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
   textContent.value = await (await fetch(url)).text()
+}
+
+async function loadExcel() {
+  const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
+  const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
+  const wb = XLSX.read(data, { type: 'array' })
+  excelSheets.value = wb.SheetNames
+  excelHtml.value = wb.SheetNames.map((name) => {
+    const sheet = wb.Sheets[name]
+    if (!sheet || !sheet['!ref']) return '<p class="empty-sheet">此工作表为空</p>'
+    try {
+      return XLSX.utils.sheet_to_html(sheet, { id: name })
+    } catch {
+      return '<p class="empty-sheet">此工作表无法渲染</p>'
+    }
+  })
+  activeSheet.value = 0
 }
 
 async function renderAllPages() {
@@ -534,6 +569,81 @@ onUnmounted(() => {
   padding: var(--space-6);
   background: white;
   min-height: 100%;
+  font-size: var(--font-size-sm);
+}
+
+.excel-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: white;
+}
+
+.excel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sunken);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.excel-tab {
+  padding: 4px 14px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.excel-tab:hover {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+}
+
+.excel-tab.active {
+  background: white;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.excel-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.excel-table-wrap :deep(table) {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: max-content;
+}
+
+.excel-table-wrap :deep(td),
+.excel-table-wrap :deep(th) {
+  border: 1px solid var(--color-border);
+  padding: 3px 8px;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.excel-table-wrap :deep(th) {
+  background: var(--color-bg-sunken);
+  font-weight: 600;
+}
+
+.empty-sheet {
+  text-align: center;
+  padding: var(--space-10);
+  color: var(--color-text-tertiary);
   font-size: var(--font-size-sm);
 }
 
