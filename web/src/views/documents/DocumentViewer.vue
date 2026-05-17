@@ -16,7 +16,7 @@
             <right-outlined />
           </a-button>
         </div>
-        <span v-else-if="docInfo?.file_type === 'docx'" class="doc-type-tag">Word 文档</span>
+        <span v-else class="doc-type-tag">{{ fileTypeLabel }}</span>
       </div>
       <div class="doc-viewport" ref="viewportRef" @scroll="onScroll">
         <!-- PDF rendering -->
@@ -29,16 +29,21 @@
           />
         </div>
         <!-- Word HTML rendering -->
-        <div v-else-if="wordHtml" class="word-content" v-html="wordHtml"></div>
+        <div v-else-if="docInfo?.file_type === 'docx' && wordHtml" class="word-content" v-html="wordHtml"></div>
+        <!-- Markdown / TXT rendering -->
+        <div v-else-if="textContent" class="text-content markdown-body" v-html="renderMarkdown(textContent)"></div>
         <!-- Placeholder -->
+        <div v-else-if="docInfo && !['pdf', 'docx', 'md', 'txt', 'csv'].includes(docInfo.file_type || '')" class="doc-placeholder">
+          <div class="placeholder-icon">
+            <file-text-outlined style="font-size: 40px; opacity: 0.4" />
+          </div>
+          <p>{{ docInfo.file_type?.toUpperCase() }} 文档暂不支持在线预览</p>
+        </div>
         <div v-else class="doc-placeholder">
           <div class="placeholder-icon">
             <file-text-outlined style="font-size: 40px; opacity: 0.4" />
           </div>
-          <p v-if="docInfo && docInfo.file_type !== 'pdf' && docInfo.file_type !== 'docx'">
-            {{ docInfo.file_type?.toUpperCase() }} 文档暂不支持在线预览
-          </p>
-          <p v-else>正在加载文档…</p>
+          <p>正在加载文档…</p>
         </div>
       </div>
     </div>
@@ -160,6 +165,12 @@ const expandedId = ref<string | null>(null)
 const viewportRef = ref<HTMLElement | null>(null)
 const detailCache = ref<Record<string, ChunkDetail>>({})
 const wordHtml = ref('')
+const textContent = ref('')
+
+const fileTypeLabel = computed(() => {
+  const map: Record<string, string> = { docx: 'Word 文档', md: 'Markdown', txt: '纯文本', csv: 'CSV' }
+  return map[docInfo.value?.file_type || ''] || docInfo.value?.file_type?.toUpperCase() || ''
+})
 
 const canvasRefs: (HTMLCanvasElement | null)[] = []
 const pageHeights: number[] = []
@@ -249,6 +260,8 @@ async function fetchData() {
       await loadPdf()
     } else if (doc.file_type === 'docx') {
       await loadWord()
+    } else if (['md', 'txt', 'csv'].includes(doc.file_type || '')) {
+      await loadText()
     }
   } catch (e: unknown) {
     message.error((e as Error).message)
@@ -271,6 +284,11 @@ async function loadWord() {
   const data = await (await fetch(url)).arrayBuffer()
   const result = await mammoth.convertToHtml({ arrayBuffer: data })
   wordHtml.value = result.value
+}
+
+async function loadText() {
+  const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
+  textContent.value = await (await fetch(url)).text()
 }
 
 async function renderAllPages() {
@@ -510,6 +528,13 @@ onUnmounted(() => {
   background: var(--color-bg-sunken);
   padding: 2px 8px;
   border-radius: var(--radius-full);
+}
+
+.text-content {
+  padding: var(--space-6);
+  background: white;
+  min-height: 100%;
+  font-size: var(--font-size-sm);
 }
 
 .doc-placeholder {
