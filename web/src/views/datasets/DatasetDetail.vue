@@ -251,8 +251,8 @@ const chunkForm = ref({
 })
 
 const strategyDesc = computed(() => ({
-  paragraph: '按段落边界分块，适合书籍、论文、连续文本（PDF/Word 推荐）',
-  heading: '按标题章节边界分块，适合技术文档、法规文件（PDF/Word 推荐）',
+  paragraph: '按段落边界分块，适合书籍、论文、连续文本（PDF/Word/Markdown 推荐）',
+  heading: '按标题章节边界分块，适合技术文档、法规文件（PDF/Word/Markdown 推荐）',
   fixed_size: '按固定字符数切割，适合通用场景',
   page: '按页码分块，适合表格密集文档（Excel 推荐）',
   qa: '逐行分块，适合 CSV/Excel 问答对、知识条目',
