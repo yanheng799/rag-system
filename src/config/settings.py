@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     milvus_hnsw_m: int = Field(default=16)
     milvus_hnsw_ef_construction: int = Field(default=200)
 
+    # JWT 配置
+    jwt_secret: str = Field(default="change-me-in-production", description="JWT 签名密钥")
+    jwt_expire_hours: int = Field(default=24, description="Token 有效期（小时）")
+    auth_enabled: bool = Field(default=True, description="是否启用鉴权")
+
     # 签名 URL 配置
     signed_url_expire_seconds: int = Field(default=3600, description="签名 URL 有效期（秒）")
 

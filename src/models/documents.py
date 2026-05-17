@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+
+
+@dataclass
+class UserRecord:
+    """用户记录"""
+
+    user_id: str
+    username: str
+    display_name: str | None = None
+    created_at: datetime | None = None
+    # 内部使用，不暴露到 API
+    _password_hash: str = field(default="", repr=False)
 
 
 @dataclass

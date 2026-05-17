@@ -6,8 +6,8 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config.settings import settings
-from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord
-from src.storage.pg_models import ChunkORM, DatasetORM, DocumentORM, QueryLogORM
+from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord, UserRecord
+from src.storage.pg_models import ChunkORM, DatasetORM, DocumentORM, QueryLogORM, UserORM
 from src.storage.ports import DocumentStorePort
 
 
@@ -410,3 +410,53 @@ class PgStore(DocumentStorePort):
             conditions = [DocumentORM.filename.ilike(f"%{name}%") for name in filenames]
             result = await session.execute(select(DocumentORM.doc_id).where(or_(*conditions)))
             return [row[0] for row in result.all()]
+
+    # ---- 用户管理 ----
+
+    @staticmethod
+    def _user_orm_to_record(orm: UserORM) -> UserRecord:
+        return UserRecord(
+            user_id=orm.user_id,
+            username=orm.username,
+            display_name=orm.display_name,
+            created_at=orm.created_at,
+            _password_hash=orm.password_hash,
+        )
+
+    async def create_user(
+        self,
+        user_id: str,
+        username: str,
+        password_hash: str,
+        display_name: str | None = None,
+    ) -> UserRecord:
+        async with self._session_factory() as session:
+            orm = UserORM(
+                user_id=user_id,
+                username=username,
+                password_hash=password_hash,
+                display_name=display_name,
+            )
+            session.add(orm)
+            await session.commit()
+            await session.refresh(orm)
+            return self._user_orm_to_record(orm)
+
+    async def get_user_by_username(self, username: str) -> UserRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(select(UserORM).where(UserORM.username == username))
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._user_orm_to_record(orm)
+
+    async def get_user_by_id(self, user_id: str) -> UserRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(select(UserORM).where(UserORM.user_id == user_id))
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._user_orm_to_record(orm)
+
+    async def get_user_memberships(self, user_id: str) -> list:
+        return []
