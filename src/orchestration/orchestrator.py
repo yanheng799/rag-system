@@ -36,7 +36,6 @@ class RAGOrchestrator:
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
         doc_store: DocumentStorePort,
-        signed_url_service=None,
     ):
         self._searcher = searcher
         self._llm = llm_client
