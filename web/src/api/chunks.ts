@@ -9,6 +9,7 @@ export interface ChunkListItem {
   char_count: number
   full_text: string
   element_count: number
+  image_urls: string[]
   group_id: string
   created_at: string | null
 }

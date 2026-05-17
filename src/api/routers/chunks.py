@@ -198,6 +198,7 @@ async def list_chunks(
             char_count=r.char_count,
             full_text=r.full_text[:200],
             element_count=len(r.elements) if isinstance(r.elements, list) else 0,
+            image_urls=r.image_urls if isinstance(r.image_urls, list) else [],
             group_id=r.group_id,
             created_at=r.created_at,
         )

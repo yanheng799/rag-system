@@ -18,6 +18,7 @@ class ChunkListItem(BaseModel):
     char_count: int
     full_text: str = Field(description="截断预览，最多 200 字符")
     element_count: int
+    image_urls: list[str] = []
     group_id: str = ""
     created_at: datetime | None = None
 

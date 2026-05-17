@@ -54,6 +54,7 @@
 ### 2.5 分块管理
 
 - **分块浏览**：按文档查看分块列表（分页），支持查看每个分块的完整 elements、full_text、image_urls，用于前端可视化展示
+- **文档查看器**：以文档为主体，左右分栏展示 PDF 文档与分块信息。左侧通过 iframe 加载 PDF 原件（`/api/v1/images/raw-docs/{doc_id}/{filename}#page=N`），外部翻页按钮控制页码；右侧自动显示当前页的分块列表（折叠/展开），折叠态截断预览全文前几行，展开态显示完整全文内容。翻页时右侧分块自动跟随切换
 - **分块删除**：用户可删除单个分块，直接从 PG + Milvus 中移除
 - **分块合并**：用户选择同一文档中相邻的多个分块合并为一个，系统重新生成 embedding 并同步更新 PG + Milvus；合并后产生新 chunk_id（格式 `{doc_id}_m_{uuid_hex[:8]}`），原分块记录删除
 - **分块拆分**：用户选择一个分块，指定元素索引位置（split_at），将 elements 一分为二，各自重建 full_text 和 embedding，分别写入 PG + Milvus
@@ -437,6 +438,7 @@ MinIO / S3
 |------|------|
 | 重新摄入 | 分块策略或 Embedding 模型升级时，无需用户重新上传 |
 | 用户下载 | 管理后台支持查看和下载原始文件 |
+| 文档查看 | 前端文档查看器通过图片代理端点加载 PDF 原件，支持分页浏览并与分块信息同步展示 |
 | 溯源核查 | 用户对答案存疑时，可直接取原始文件核对 |
 
 **PostgreSQL 数据管理表**：
@@ -647,7 +649,7 @@ class RAGOrchestrator:
 | POST | `/api/v1/chunks/{chunk_id}/split` | 按元素索引拆分分块（支持 `link_group` 参数） |
 | POST | `/api/v1/chunks/link` | 关联多个分块到同一 group_id |
 | POST | `/api/v1/chunks/unlink` | 取消分块的 group_id 关联 |
-| GET | `/api/v1/images/{path}` | 图片代理（根据内部 OSS 路径返回图片，无需签名） |
+| GET | `/api/v1/images/{path}` | 图片代理（根据内部 OSS 路径返回图片/文档，无需签名，也用于前端 PDF 文档查看器加载原始文档） |
 
 ---
 
@@ -1007,7 +1009,8 @@ PDF / Word / Excel / TXT / Markdown / CSV 文档上传
 - **升级 LLM** → 修改 `LLMClient` 配置项，切换模型端点；`FallbackLLMClient` 自动降级到备用模型
 - **优化检索策略** → 替换 Pipeline 中的单个节点，其余节点不受影响；RRF 权重通过配置中心运行时调整
 - **增加新接口** → 在用户交互层新增 Handler，通过鉴权中间件统一保护
-- **切换对象存储** → 修改 `ObjectStoragePort` 实现，图片代理端点统一由 `/api/v1/images/{path}` 路由转发
+- **切换对象存储** → 修改 `ObjectStoragePort` 实现，图片/文档代理端点统一由 `/api/v1/images/{path}` 路由转发
+- **文档查看器扩展** → 当前支持 PDF iframe 预览，可扩展为 PDF.js Canvas 渲染以支持更精确的页码追踪和高亮标注
 - **扩展元数据字段** → 在 `ChunkMetadata` 中新增字段，同步更新 Milvus Schema 和响应结构
 - **扩展权限模型** → 在 `document_acl` 表中新增权限维度（如部门、标签），`ACLFilter` 自动适配
 

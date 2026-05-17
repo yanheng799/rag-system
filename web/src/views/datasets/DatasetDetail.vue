@@ -135,6 +135,11 @@
         </template>
         <template v-if="column.key === 'action'">
           <a-space :size="4">
+            <a-tooltip v-if="record.status === 'done'" title="查看文档">
+              <router-link :to="`/documents/${record.doc_id}/viewer`">
+                <a-button type="text" size="small" class="action-btn-primary"><EyeOutlined /></a-button>
+              </router-link>
+            </a-tooltip>
             <a-tooltip v-if="record.status === 'done'" title="查看分块">
               <router-link :to="`/documents/${record.doc_id}/chunks`">
                 <a-button type="text" size="small" class="action-btn-info"><UnorderedListOutlined /></a-button>
@@ -184,7 +189,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
