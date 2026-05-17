@@ -7,7 +7,7 @@
           <arrow-left-outlined /> 返回
         </a-button>
         <span class="doc-filename">{{ docInfo?.filename || '加载中…' }}</span>
-        <div class="page-nav">
+        <div v-if="docInfo?.file_type === 'pdf'" class="page-nav">
           <a-button type="text" size="small" :disabled="currentPage <= 0" @click="goToPage(currentPage - 1)">
             <left-outlined />
           </a-button>
@@ -16,9 +16,11 @@
             <right-outlined />
           </a-button>
         </div>
+        <span v-else-if="docInfo?.file_type === 'docx'" class="doc-type-tag">Word 文档</span>
       </div>
       <div class="doc-viewport" ref="viewportRef" @scroll="onScroll">
-        <div class="pages-container">
+        <!-- PDF rendering -->
+        <div v-if="docInfo?.file_type === 'pdf'" class="pages-container">
           <canvas
             v-for="p in numPages"
             :key="p"
@@ -26,11 +28,14 @@
             class="pdf-canvas"
           />
         </div>
-        <div v-if="!docInfo || docInfo.file_type !== 'pdf'" class="doc-placeholder">
+        <!-- Word HTML rendering -->
+        <div v-else-if="wordHtml" class="word-content" v-html="wordHtml"></div>
+        <!-- Placeholder -->
+        <div v-else class="doc-placeholder">
           <div class="placeholder-icon">
             <file-text-outlined style="font-size: 40px; opacity: 0.4" />
           </div>
-          <p v-if="docInfo && docInfo.file_type !== 'pdf'">
+          <p v-if="docInfo && docInfo.file_type !== 'pdf' && docInfo.file_type !== 'docx'">
             {{ docInfo.file_type?.toUpperCase() }} 文档暂不支持在线预览
           </p>
           <p v-else>正在加载文档…</p>
@@ -45,18 +50,18 @@
     <div class="chunk-pane" :style="{ width: 100 - paneLeft + '%' }">
       <div class="chunk-scroll">
         <div class="chunk-pane-header">
-          <span class="page-label">第 {{ currentPage + 1 }} 页</span>
-          <span class="chunk-count">{{ pageChunks.length }} 个分块</span>
+          <span class="page-label">{{ docInfo?.file_type === 'pdf' ? `第 ${currentPage + 1} 页` : '全部分块' }}</span>
+          <span class="chunk-count">{{ displayChunks.length }} 个分块</span>
         </div>
 
         <a-spin :spinning="loading">
-          <div v-if="pageChunks.length === 0 && !loading" class="empty-state">
-            <span>本页暂无分块</span>
+          <div v-if="displayChunks.length === 0 && !loading" class="empty-state">
+            <span>暂无分块</span>
           </div>
 
           <div v-else class="chunk-groups">
             <div
-              v-for="group in groupedChunks"
+              v-for="group in displayGroups"
               :key="group.key"
               class="chunk-group"
             >
@@ -134,6 +139,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons-vue'
 import * as pdfjsLib from 'pdfjs-dist'
+import mammoth from 'mammoth/mammoth.browser.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -153,6 +159,7 @@ const paneLeft = ref(55)
 const expandedId = ref<string | null>(null)
 const viewportRef = ref<HTMLElement | null>(null)
 const detailCache = ref<Record<string, ChunkDetail>>({})
+const wordHtml = ref('')
 
 const canvasRefs: (HTMLCanvasElement | null)[] = []
 const pageHeights: number[] = []
@@ -168,14 +175,20 @@ const pageChunks = computed(() => {
   return allChunks.value.filter((c) => c.page === currentPage.value)
 })
 
+// For Word docs show all chunks, for PDF show page-filtered
+const displayChunks = computed(() => {
+  if (docInfo.value?.file_type !== 'pdf') return allChunks.value
+  return pageChunks.value
+})
+
 interface ChunkGroup {
   key: string
   groupId: string
   chunks: ChunkListItem[]
 }
 
-const groupedChunks = computed<ChunkGroup[]>(() => {
-  const chunks = pageChunks.value
+const displayGroups = computed<ChunkGroup[]>(() => {
+  const chunks = displayChunks.value
   const groups: ChunkGroup[] = []
   const groupIdMap = new Map<string, ChunkListItem[]>()
   const usedIds = new Set<string>()
@@ -234,6 +247,8 @@ async function fetchData() {
 
     if (doc.file_type === 'pdf') {
       await loadPdf()
+    } else if (doc.file_type === 'docx') {
+      await loadWord()
     }
   } catch (e: unknown) {
     message.error((e as Error).message)
@@ -243,12 +258,19 @@ async function fetchData() {
 }
 
 async function loadPdf() {
-  const url = `/api/v1/images/raw-docs/${docId}/${encodeURIComponent(docInfo.value!.filename)}`
+  const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
   const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
   pdfDoc = await pdfjsLib.getDocument({ data }).promise
   numPages.value = pdfDoc.numPages
   await nextTick()
   await renderAllPages()
+}
+
+async function loadWord() {
+  const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
+  const data = await (await fetch(url)).arrayBuffer()
+  const result = await mammoth.convertToHtml({ arrayBuffer: data })
+  wordHtml.value = result.value
 }
 
 async function renderAllPages() {
@@ -455,6 +477,39 @@ onUnmounted(() => {
   max-width: 100%;
   background: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.word-content {
+  padding: var(--space-6);
+  background: white;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.8;
+  min-height: 100%;
+}
+
+.word-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-3) 0;
+}
+
+.word-content td, .word-content th {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+}
+
+.word-content img {
+  max-width: 100%;
+}
+
+.doc-type-tag {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-sunken);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
 }
 
 .doc-placeholder {

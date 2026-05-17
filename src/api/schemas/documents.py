@@ -20,6 +20,7 @@ class DocumentStatusResponse(BaseModel):
     error_msg: str | None = None
     file_size: int | None = None
     file_type: str | None = None
+    raw_file_url: str | None = None
     chunk_count: int = 0
     chunk_options: dict | None = None
     uploaded_at: str | None = None

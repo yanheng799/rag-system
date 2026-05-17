@@ -290,6 +290,7 @@ async def get_document_status(request: Request, doc_id: str):
         error_msg=doc.error_msg,
         file_size=doc.file_size,
         file_type=doc.file_type,
+        raw_file_url=doc.raw_file_url,
         chunk_count=doc.chunk_count,
         chunk_options=doc.chunk_options,
         uploaded_at=doc.uploaded_at.isoformat() if doc.uploaded_at else None,
