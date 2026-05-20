@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from src.api.auth_utils import create_access_token, decode_access_token, hash_password, verify_password
 from src.api.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
-from src.api.schemas.orgs import SwitchOrgRequest
+from src.api.schemas.orgs import InvitationResponse, SwitchOrgRequest
 
 router = APIRouter(prefix="/api/v1/auth", tags=["认证管理"])
 
@@ -107,3 +107,91 @@ async def switch_org(request: Request, body: SwitchOrgRequest):
 
     token = create_access_token(user_id, org_id=body.org_id)
     return TokenResponse(access_token=token)
+
+
+@router.get("/invitations", response_model=list[InvitationResponse])
+async def list_invitations(request: Request):
+    from datetime import datetime, timedelta, timezone
+
+    payload = _get_token(request)
+    user_id = payload["user_id"]
+    pg_store = request.app.state.pg_store
+
+    invitations = await pg_store.list_invitations_by_user(user_id)
+
+    result = []
+    now = datetime.now(timezone.utc)
+    for inv in invitations:
+        expired = False
+        status = inv.status
+        if inv.status == "pending" and inv.created_at is not None:
+            if now - inv.created_at > timedelta(days=7):
+                status = "expired"
+                expired = True
+        result.append(InvitationResponse(
+            invitation_id=inv.invitation_id,
+            org_id=inv.org_id,
+            org_name=inv.org_name,
+            inviter_user_id=inv.inviter_user_id,
+            inviter_username=inv.inviter_username,
+            invitee_user_id=inv.invitee_user_id,
+            status=status,
+            created_at=inv.created_at.isoformat() if inv.created_at else None,
+            responded_at=inv.responded_at.isoformat() if inv.responded_at else None,
+            expired=expired,
+        ))
+    return result
+
+
+@router.post("/invitations/{invitation_id}/accept", status_code=200)
+async def accept_invitation(request: Request, invitation_id: str):
+    from datetime import datetime, timedelta, timezone
+
+    payload = _get_token(request)
+    user_id = payload["user_id"]
+    pg_store = request.app.state.pg_store
+
+    inv = await pg_store.get_invitation(invitation_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if inv.invitee_user_id != user_id:
+        raise HTTPException(status_code=403, detail="这不是发给您的邀请")
+    if inv.status != "pending":
+        raise HTTPException(status_code=410, detail="邀请已失效")
+    if inv.created_at is not None:
+        if datetime.now(timezone.utc) - inv.created_at > timedelta(days=7):
+            raise HTTPException(status_code=410, detail="邀请已过期")
+
+    import uuid
+
+    await pg_store.create_membership(
+        membership_id=f"mem_{uuid.uuid4().hex[:12]}",
+        org_id=inv.org_id,
+        user_id=user_id,
+        role="member",
+    )
+    await pg_store.update_invitation_status(invitation_id, "accepted")
+    return {"detail": "已加入组织"}
+
+
+@router.post("/invitations/{invitation_id}/reject", status_code=200)
+async def reject_invitation(request: Request, invitation_id: str):
+    from datetime import datetime, timedelta, timezone
+
+    payload = _get_token(request)
+    user_id = payload["user_id"]
+    pg_store = request.app.state.pg_store
+
+    inv = await pg_store.get_invitation(invitation_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="邀请不存在")
+    if inv.invitee_user_id != user_id:
+        raise HTTPException(status_code=403, detail="这不是发给您的邀请")
+    if inv.status != "pending":
+        raise HTTPException(status_code=410, detail="邀请已失效")
+    if inv.created_at is not None:
+        if datetime.now(timezone.utc) - inv.created_at > timedelta(days=7):
+            raise HTTPException(status_code=410, detail="邀请已过期")
+
+    await pg_store.update_invitation_status(invitation_id, "rejected")
+    return {"detail": "已拒绝邀请"}
