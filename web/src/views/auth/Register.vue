@@ -21,7 +21,7 @@
         <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }, { min: 8, message: '最少 8 字符' }]">
           <a-input-password v-model:value="form.password" placeholder="密码" size="large" />
         </a-form-item>
-        <a-form-item name="pw2" :rules="[{ required: true, message: '请确认密码' }, { validator: () => form.password === form.password_confirm ? Promise.resolve() : Promise.reject('两次不一致') }]">
+        <a-form-item name="pw2" :rules="[{ required: true, message: '请确认密码' }, { validator: validatePw2 }]">
           <a-input-password v-model:value="form.password_confirm" placeholder="确认密码" size="large" />
         </a-form-item>
         <a-form-item>
@@ -42,6 +42,11 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter(); const authStore = useAuthStore(); const loading = ref(false)
 const form = reactive({ username: '', display_name: '', password: '', password_confirm: '' })
+
+function validatePw2() {
+  if (form.password !== form.password_confirm) return Promise.reject('两次密码不一致')
+  return Promise.resolve()
+}
 
 async function handleRegister() {
   loading.value = true
