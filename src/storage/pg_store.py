@@ -10,6 +10,7 @@ from src.models.documents import (
     ChunkRecord,
     DatasetRecord,
     DocumentRecord,
+    InvitationRecord,
     MembershipRecord,
     OrganizationRecord,
     QueryLogRecord,
@@ -19,6 +20,7 @@ from src.storage.pg_models import (
     ChunkORM,
     DatasetORM,
     DocumentORM,
+    InvitationORM,
     MembershipORM,
     OrganizationORM,
     QueryLogORM,
@@ -647,3 +649,125 @@ class PgStore(DocumentStorePort):
                 )
                 for m, u in rows
             ]
+
+    async def update_membership_role(self, membership_id: str, role: str) -> bool:
+        async with self._session_factory() as session:
+            stmt = update(MembershipORM).where(MembershipORM.membership_id == membership_id).values(role=role)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+
+    async def delete_membership(self, org_id: str, user_id: str) -> bool:
+        async with self._session_factory() as session:
+            stmt = delete(MembershipORM).where(
+                MembershipORM.org_id == org_id,
+                MembershipORM.user_id == user_id,
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+
+    async def count_members_by_role(self, org_id: str, role: str) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(func.count()).where(
+                    MembershipORM.org_id == org_id,
+                    MembershipORM.role == role,
+                )
+            )
+            return result.scalar() or 0
+
+    # ---- 邀请管理 ----
+
+    @staticmethod
+    def _invitation_orm_to_record(orm: InvitationORM) -> InvitationRecord:
+        return InvitationRecord(
+            invitation_id=orm.invitation_id,
+            org_id=orm.org_id,
+            inviter_user_id=orm.inviter_user_id,
+            invitee_user_id=orm.invitee_user_id,
+            status=orm.status,
+            created_at=orm.created_at,
+            responded_at=orm.responded_at,
+        )
+
+    async def create_invitation(
+        self,
+        invitation_id: str,
+        org_id: str,
+        inviter_user_id: str,
+        invitee_user_id: str,
+    ) -> InvitationRecord:
+        async with self._session_factory() as session:
+            orm = InvitationORM(
+                invitation_id=invitation_id,
+                org_id=org_id,
+                inviter_user_id=inviter_user_id,
+                invitee_user_id=invitee_user_id,
+                status="pending",
+            )
+            session.add(orm)
+            await session.commit()
+            await session.refresh(orm)
+            return self._invitation_orm_to_record(orm)
+
+    async def get_pending_invitation(self, org_id: str, invitee_user_id: str) -> InvitationRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(InvitationORM).where(
+                    InvitationORM.org_id == org_id,
+                    InvitationORM.invitee_user_id == invitee_user_id,
+                    InvitationORM.status == "pending",
+                )
+            )
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._invitation_orm_to_record(orm)
+
+    async def get_invitation(self, invitation_id: str) -> InvitationRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(InvitationORM).where(InvitationORM.invitation_id == invitation_id)
+            )
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._invitation_orm_to_record(orm)
+
+    async def list_invitations_by_user(self, user_id: str) -> list[InvitationRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(InvitationORM, OrganizationORM, UserORM)
+                .join(OrganizationORM, InvitationORM.org_id == OrganizationORM.org_id)
+                .join(UserORM, InvitationORM.inviter_user_id == UserORM.user_id)
+                .where(InvitationORM.invitee_user_id == user_id)
+                .order_by(InvitationORM.created_at.desc())
+            )
+            rows = result.all()
+            return [
+                InvitationRecord(
+                    invitation_id=i.invitation_id,
+                    org_id=i.org_id,
+                    inviter_user_id=i.inviter_user_id,
+                    invitee_user_id=i.invitee_user_id,
+                    status=i.status,
+                    org_name=o.name,
+                    inviter_username=u.username,
+                    created_at=i.created_at,
+                    responded_at=i.responded_at,
+                )
+                for i, o, u in rows
+            ]
+
+    async def update_invitation_status(
+        self, invitation_id: str, status: str, responded_at: datetime | None = None
+    ) -> bool:
+        from datetime import datetime as dt
+
+        async with self._session_factory() as session:
+            values = {"status": status, "responded_at": responded_at or dt.utcnow()}
+            stmt = update(InvitationORM).where(InvitationORM.invitation_id == invitation_id).values(**values)
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0

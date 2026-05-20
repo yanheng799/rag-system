@@ -139,6 +139,24 @@ class MembershipORM(Base):
     )
 
 
+class InvitationORM(Base):
+    __tablename__ = "rag_invitations"
+
+    invitation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("rag_organizations.org_id", ondelete="CASCADE"), nullable=False)
+    inviter_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("rag_users.user_id", ondelete="CASCADE"), nullable=False)
+    invitee_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("rag_users.user_id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("idx_invitations_org_id", "org_id"),
+        Index("idx_invitations_invitee", "invitee_user_id"),
+        Index("idx_invitations_status", "status"),
+    )
+
+
 class QueryLogORM(Base):
     __tablename__ = "rag_query_logs"
 

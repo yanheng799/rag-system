@@ -7,7 +7,15 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 
 from src.api.auth_utils import decode_access_token
-from src.api.schemas.orgs import CreateOrgRequest, MemberResponse, OrgResponse, UpdateOrgRequest
+from src.api.schemas.orgs import (
+    ChangeRoleRequest,
+    CreateInvitationRequest,
+    CreateOrgRequest,
+    InvitationResponse,
+    MemberResponse,
+    OrgResponse,
+    UpdateOrgRequest,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["组织管理"])
 
@@ -157,3 +165,110 @@ async def list_members(request: Request, org_id: str):
         )
         for m in members
     ]
+
+
+@router.post("/orgs/{org_id}/invitations", response_model=InvitationResponse, status_code=201)
+async def invite_member(request: Request, org_id: str, body: CreateInvitationRequest):
+    user_id = _get_user_id(request)
+    pg_store = request.app.state.pg_store
+
+    membership = await pg_store.get_membership(org_id, user_id)
+    if membership is None or membership.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可邀请成员")
+
+    target = await pg_store.get_user_by_username(body.username)
+    if target is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    existing_member = await pg_store.get_membership(org_id, target.user_id)
+    if existing_member is not None:
+        raise HTTPException(status_code=409, detail="该用户已在组织中")
+
+    existing_inv = await pg_store.get_pending_invitation(org_id, target.user_id)
+    if existing_inv is not None:
+        raise HTTPException(status_code=409, detail="该用户已有待处理的邀请")
+
+    org = await pg_store.get_organization(org_id)
+    inv = await pg_store.create_invitation(
+        invitation_id=f"inv_{uuid.uuid4().hex[:12]}",
+        org_id=org_id,
+        inviter_user_id=user_id,
+        invitee_user_id=target.user_id,
+    )
+    return InvitationResponse(
+        invitation_id=inv.invitation_id,
+        org_id=inv.org_id,
+        org_name=org.name if org else "",
+        inviter_user_id=inv.inviter_user_id,
+        inviter_username="",
+        invitee_user_id=inv.invitee_user_id,
+        status=inv.status,
+        created_at=inv.created_at.isoformat() if inv.created_at else None,
+    )
+
+
+@router.patch("/orgs/{org_id}/members/{target_user_id}", response_model=MemberResponse)
+async def change_member_role(request: Request, org_id: str, target_user_id: str, body: ChangeRoleRequest):
+    user_id = _get_user_id(request)
+    pg_store = request.app.state.pg_store
+
+    membership = await pg_store.get_membership(org_id, user_id)
+    if membership is None or membership.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可修改成员角色")
+
+    target_membership = await pg_store.get_membership(org_id, target_user_id)
+    if target_membership is None:
+        raise HTTPException(status_code=404, detail="该用户不在组织中")
+
+    await pg_store.update_membership_role(target_membership.membership_id, body.role)
+
+    return MemberResponse(
+        membership_id=target_membership.membership_id,
+        org_id=target_membership.org_id,
+        user_id=target_membership.user_id,
+        username="",
+        display_name=None,
+        role=body.role,
+        joined_at=target_membership.joined_at,
+    )
+
+
+@router.delete("/orgs/{org_id}/members/me", status_code=200)
+async def leave_org(request: Request, org_id: str):
+    user_id = _get_user_id(request)
+    pg_store = request.app.state.pg_store
+
+    membership = await pg_store.get_membership(org_id, user_id)
+    if membership is None:
+        raise HTTPException(status_code=404, detail="您不在该组织中")
+
+    if membership.role == "admin":
+        admin_count = await pg_store.count_members_by_role(org_id, "admin")
+        if admin_count <= 1:
+            raise HTTPException(status_code=403, detail="唯一管理员不能退出组织，请先转让管理员角色")
+
+    await pg_store.delete_membership(org_id, user_id)
+    return {"detail": "已退出组织"}
+
+
+@router.delete("/orgs/{org_id}/members/{target_user_id}", status_code=200)
+async def remove_member(request: Request, org_id: str, target_user_id: str):
+    user_id = _get_user_id(request)
+    pg_store = request.app.state.pg_store
+
+    membership = await pg_store.get_membership(org_id, user_id)
+    if membership is None or membership.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可移除成员")
+
+    if target_user_id == "me":
+        raise HTTPException(status_code=400, detail="请使用 /members/me 端点退出组织")
+
+    if target_user_id == user_id:
+        raise HTTPException(status_code=403, detail="管理员不能移除自己，请使用退出流程")
+
+    target_membership = await pg_store.get_membership(org_id, target_user_id)
+    if target_membership is None:
+        raise HTTPException(status_code=404, detail="该用户不在组织中")
+
+    await pg_store.delete_membership(org_id, target_user_id)
+    return {"detail": "已移除成员"}

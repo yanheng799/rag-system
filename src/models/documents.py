@@ -95,6 +95,22 @@ class MembershipRecord:
 
 
 @dataclass
+class InvitationRecord:
+    """邀请记录"""
+
+    invitation_id: str
+    org_id: str
+    inviter_user_id: str
+    invitee_user_id: str
+    status: str = "pending"  # pending | accepted | rejected | expired
+    org_name: str = ""
+    inviter_username: str = ""
+    invitee_username: str = ""
+    created_at: datetime | None = None
+    responded_at: datetime | None = None
+
+
+@dataclass
 class QueryLogRecord:
     """查询日志记录"""
 

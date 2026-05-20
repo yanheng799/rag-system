@@ -37,3 +37,24 @@ class MemberResponse(BaseModel):
 
 class SwitchOrgRequest(BaseModel):
     org_id: str = Field(..., min_length=1)
+
+
+class CreateInvitationRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+
+
+class InvitationResponse(BaseModel):
+    invitation_id: str
+    org_id: str
+    org_name: str
+    inviter_user_id: str
+    inviter_username: str
+    invitee_user_id: str
+    status: str
+    created_at: str | None = None
+    responded_at: str | None = None
+    expired: bool = False
+
+
+class ChangeRoleRequest(BaseModel):
+    role: str = Field(..., pattern=r"^(admin|member)$")
