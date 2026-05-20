@@ -48,6 +48,7 @@ class RAGOrchestrator:
         top_k: int = 5,
         user_id: str | None = None,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> QueryResponse:
         """
         完整问答流程：
@@ -94,6 +95,7 @@ class RAGOrchestrator:
             retrieval_ms=retrieval_ms,
             llm_ms=llm_ms,
             total_ms=total_ms,
+            org_id=org_id,
             created_by=user_id,
         )
         await self._doc_store.save_query_log(log)

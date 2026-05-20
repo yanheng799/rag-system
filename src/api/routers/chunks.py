@@ -27,9 +27,20 @@ from src.api.schemas.chunks import (
     UnlinkResponse,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["分块管理"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1", tags=["分块管理"])
 
 EMBEDDING_MAX_CHARS = 2048
+
+
+async def _check_chunk_in_org(request: Request, chunk_id: str, org_id: str) -> None:
+    """校验分块所属文档是否属于指定组织"""
+    pg_store = request.app.state.pg_store
+    chunk = await pg_store.get_chunk(chunk_id)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="分块不存在")
+    doc = await pg_store.get_document(chunk.doc_id)
+    if doc is None or (doc.org_id and doc.org_id != org_id):
+        raise HTTPException(status_code=404, detail="分块不存在")
 
 
 def _detect_chunk_type(elements: list[dict]) -> str:
@@ -180,12 +191,16 @@ async def list_chunks(
     doc_id: str,
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
 ):
     """分页查询文档下的分块列表，按 page + chunk_index 排序"""
     pg_store = request.app.state.pg_store
+    org_id = user.get("org_id", "") or ""
 
     doc = await pg_store.get_document(doc_id)
     if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.org_id and doc.org_id != org_id:
         raise HTTPException(status_code=404, detail="文档不存在")
 
     records, total = await pg_store.list_chunks_by_doc(doc_id, page=page, size=size)
@@ -218,13 +233,13 @@ async def list_chunks(
     response_model=ChunkDetail,
     summary="查看分块详情",
 )
-async def get_chunk_detail(request: Request, chunk_id: str):
+async def get_chunk_detail(request: Request, chunk_id: str, user: dict = Depends(get_current_user)):
     """返回分块的完整 elements、full_text、image_urls"""
     pg_store = request.app.state.pg_store
+    org_id = user.get("org_id", "") or ""
+    await _check_chunk_in_org(request, chunk_id, org_id)
 
     chunk = await pg_store.get_chunk(chunk_id)
-    if chunk is None:
-        raise HTTPException(status_code=404, detail="分块不存在")
 
     elements = chunk.elements if isinstance(chunk.elements, list) else []
     for elem in elements:
@@ -317,16 +332,16 @@ async def edit_chunk(request: Request, chunk_id: str, body: EditChunkRequest):
 
 
 @router.delete("/chunks/{chunk_id}", summary="删除单个分块")
-async def delete_chunk(request: Request, chunk_id: str):
+async def delete_chunk(request: Request, chunk_id: str, user: dict = Depends(get_current_user)):
     """删除单个分块，同步清理 PG + Milvus + OSS 图片"""
     pg_store = request.app.state.pg_store
     milvus_store = request.app.state.milvus_store
     embedder = request.app.state.embedder
     oss_store = request.app.state.oss_store
+    org_id = user.get("org_id", "") or ""
+    await _check_chunk_in_org(request, chunk_id, org_id)
 
     chunk = await pg_store.get_chunk(chunk_id)
-    if chunk is None:
-        raise HTTPException(status_code=404, detail="分块不存在")
 
     image_urls = chunk.image_urls if isinstance(chunk.image_urls, list) else []
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from src.api.deps import get_current_user
 from src.api.schemas.query import QueryRequest, QueryResponse
 
-router = APIRouter(prefix="/api/v1", tags=["问答"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1", tags=["问答"])
 
 
 async def resolve_filters(
@@ -15,19 +15,20 @@ async def resolve_filters(
     dataset_ids,
     doc_ids,
     doc_names,
+    org_id: str | None = None,
 ) -> dict | None:
-    """将 dataset_ids / doc_ids / doc_names 解析为 Milvus 过滤条件"""
+    """将 dataset_ids / doc_ids / doc_names 解析为 Milvus 过滤条件，按 org_id 限定范围"""
     sets: list[set[str]] = []
 
     if dataset_ids:
-        ids = await pg_store.get_doc_ids_by_dataset_ids(dataset_ids)
+        ids = await pg_store.get_doc_ids_by_dataset_ids(dataset_ids, org_id=org_id)
         sets.append(set(ids))
 
     if doc_ids:
         sets.append(set(doc_ids))
 
     if doc_names:
-        ids = await pg_store.get_doc_ids_by_filenames(doc_names)
+        ids = await pg_store.get_doc_ids_by_filenames(doc_names, org_id=org_id)
         sets.append(set(ids))
 
     if not sets:
@@ -43,7 +44,7 @@ async def resolve_filters(
 
 
 @router.post("/query", response_model=QueryResponse, summary="问答接口")
-async def query(request: Request, body: QueryRequest):
+async def query(request: Request, body: QueryRequest, user: dict = Depends(get_current_user)):
     """
     问答接口：
     1. 向量检索相关文档分块
@@ -58,17 +59,21 @@ async def query(request: Request, body: QueryRequest):
     if orchestrator is None:
         raise HTTPException(status_code=503, detail="服务未就绪")
 
+    org_id = user.get("org_id", "") or ""
+
     try:
         filters = await resolve_filters(
             request.app.state.pg_store,
             body.dataset_ids,
             body.doc_ids,
             body.doc_names,
+            org_id=org_id,
         )
         result = await orchestrator.query(
             question=body.question,
             top_k=body.top_k,
             filters=filters,
+            org_id=org_id,
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from None

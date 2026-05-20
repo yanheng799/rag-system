@@ -39,6 +39,7 @@ class DatasetORM(Base):
     dataset_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text)
+    org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -57,6 +58,7 @@ class DocumentORM(Base):
     dataset_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("rag_datasets.dataset_id", ondelete="CASCADE")
     )
+    org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     raw_file_url: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -169,6 +171,7 @@ class QueryLogORM(Base):
     total_ms: Mapped[int | None] = mapped_column(Integer)
     token_count: Mapped[int | None] = mapped_column(Integer)
     cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 

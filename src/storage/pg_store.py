@@ -45,6 +45,7 @@ class PgStore(DocumentStorePort):
             orm = DocumentORM(
                 doc_id=doc.doc_id,
                 dataset_id=doc.dataset_id,
+                org_id=doc.org_id,
                 content_hash=doc.content_hash,
                 filename=doc.filename,
                 raw_file_url=doc.raw_file_url,
@@ -78,6 +79,7 @@ class PgStore(DocumentStorePort):
             return DocumentRecord(
                 doc_id=orm.doc_id,
                 dataset_id=orm.dataset_id,
+                org_id=orm.org_id,
                 content_hash=orm.content_hash,
                 filename=orm.filename,
                 raw_file_url=orm.raw_file_url,
@@ -102,6 +104,7 @@ class PgStore(DocumentStorePort):
             return DocumentRecord(
                 doc_id=orm.doc_id,
                 dataset_id=orm.dataset_id,
+                org_id=orm.org_id,
                 content_hash=orm.content_hash,
                 filename=orm.filename,
                 raw_file_url=orm.raw_file_url,
@@ -133,12 +136,14 @@ class PgStore(DocumentStorePort):
             await session.commit()
 
     async def list_documents(
-        self, page: int = 1, size: int = 20, dataset_id: str | None = None
+        self, page: int = 1, size: int = 20, dataset_id: str | None = None, org_id: str | None = None
     ) -> tuple[list[DocumentRecord], int]:
         async with self._session_factory() as session:
             base_query = select(DocumentORM)
             if dataset_id is not None:
                 base_query = base_query.where(DocumentORM.dataset_id == dataset_id)
+            if org_id is not None:
+                base_query = base_query.where(DocumentORM.org_id == org_id)
 
             count_result = await session.execute(select(func.count()).select_from(base_query.subquery()))
             total = count_result.scalar() or 0
@@ -162,6 +167,7 @@ class PgStore(DocumentStorePort):
                 DocumentRecord(
                     doc_id=r.doc_id,
                     dataset_id=r.dataset_id,
+                    org_id=r.org_id,
                     content_hash=r.content_hash,
                     filename=r.filename,
                     raw_file_url=r.raw_file_url,
@@ -291,6 +297,7 @@ class PgStore(DocumentStorePort):
                 total_ms=log.total_ms,
                 token_count=log.token_count,
                 cache_hit=log.cache_hit,
+                org_id=log.org_id,
                 created_by=log.created_by,
             )
             session.add(orm)
@@ -332,6 +339,7 @@ class PgStore(DocumentStorePort):
             dataset_id=orm.dataset_id,
             name=orm.name,
             description=orm.description,
+            org_id=orm.org_id,
             created_by=orm.created_by,
             created_at=orm.created_at,
             updated_at=orm.updated_at,
@@ -342,6 +350,7 @@ class PgStore(DocumentStorePort):
         dataset_id: str,
         name: str,
         description: str | None = None,
+        org_id: str | None = None,
         created_by: str | None = None,
     ) -> DatasetRecord:
         async with self._session_factory() as session:
@@ -349,6 +358,7 @@ class PgStore(DocumentStorePort):
                 dataset_id=dataset_id,
                 name=name,
                 description=description,
+                org_id=org_id,
                 created_by=created_by,
             )
             session.add(orm)
@@ -364,13 +374,16 @@ class PgStore(DocumentStorePort):
                 return None
             return self._dataset_orm_to_record(orm)
 
-    async def list_datasets(self, page: int = 1, size: int = 20) -> tuple[list[DatasetRecord], int]:
+    async def list_datasets(self, page: int = 1, size: int = 20, org_id: str | None = None) -> tuple[list[DatasetRecord], int]:
         async with self._session_factory() as session:
-            count_result = await session.execute(select(func.count()).select_from(DatasetORM))
+            base_query = select(DatasetORM)
+            if org_id is not None:
+                base_query = base_query.where(DatasetORM.org_id == org_id)
+            count_result = await session.execute(select(func.count()).select_from(base_query.subquery()))
             total = count_result.scalar() or 0
 
             result = await session.execute(
-                select(DatasetORM).order_by(DatasetORM.created_at.desc()).offset((page - 1) * size).limit(size)
+                base_query.order_by(DatasetORM.created_at.desc()).offset((page - 1) * size).limit(size)
             )
             rows = result.scalars().all()
             records = [self._dataset_orm_to_record(r) for r in rows]
@@ -411,22 +424,29 @@ class PgStore(DocumentStorePort):
             await session.commit()
             return result.rowcount > 0
 
-    async def count_docs_by_dataset(self, dataset_id: str) -> int:
+    async def count_docs_by_dataset(self, dataset_id: str, org_id: str | None = None) -> int:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(func.count()).select_from(DocumentORM).where(DocumentORM.dataset_id == dataset_id)
-            )
+            stmt = select(func.count()).select_from(DocumentORM).where(DocumentORM.dataset_id == dataset_id)
+            if org_id is not None:
+                stmt = stmt.where(DocumentORM.org_id == org_id)
+            result = await session.execute(stmt)
             return result.scalar() or 0
 
-    async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str]) -> list[str]:
+    async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str], org_id: str | None = None) -> list[str]:
         async with self._session_factory() as session:
-            result = await session.execute(select(DocumentORM.doc_id).where(DocumentORM.dataset_id.in_(dataset_ids)))
+            stmt = select(DocumentORM.doc_id).where(DocumentORM.dataset_id.in_(dataset_ids))
+            if org_id is not None:
+                stmt = stmt.where(DocumentORM.org_id == org_id)
+            result = await session.execute(stmt)
             return [row[0] for row in result.all()]
 
-    async def get_doc_ids_by_filenames(self, filenames: list[str]) -> list[str]:
+    async def get_doc_ids_by_filenames(self, filenames: list[str], org_id: str | None = None) -> list[str]:
         async with self._session_factory() as session:
             conditions = [DocumentORM.filename.ilike(f"%{name}%") for name in filenames]
-            result = await session.execute(select(DocumentORM.doc_id).where(or_(*conditions)))
+            stmt = select(DocumentORM.doc_id).where(or_(*conditions))
+            if org_id is not None:
+                stmt = stmt.where(DocumentORM.org_id == org_id)
+            result = await session.execute(stmt)
             return [row[0] for row in result.all()]
 
     # ---- 用户管理 ----

@@ -23,7 +23,7 @@ from src.api.schemas.documents import (
 )
 from src.ingestion.pipeline import generate_doc_id
 
-router = APIRouter(prefix="/api/v1/documents", tags=["文档管理"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/documents", tags=["文档管理"])
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +45,15 @@ async def upload_documents(
     request: Request,
     files: list[UploadFile] = File(...),  # noqa: B008
     dataset_id: str | None = Form(None),
+    user: dict = Depends(get_current_user),
 ):
     """批量上传文档，保存至 OSS 并创建记录（status=pending），不触发解析。"""
     from src.config.settings import settings
 
     pg_store = request.app.state.pg_store
     oss_store = request.app.state.oss_store
+    org_id = user.get("org_id", "") or ""
+    user_id = user.get("user_id", "") or ""
 
     # 校验 dataset_id
     if dataset_id:
@@ -103,11 +106,13 @@ async def upload_documents(
             DocumentRecord(
                 doc_id=doc_id,
                 dataset_id=dataset_id,
+                org_id=org_id,
                 content_hash=content_hash,
                 filename=filename,
                 raw_file_url=raw_file_url,
                 file_size=len(file_data),
                 file_type=ext,
+                created_by=user_id,
             )
         )
 
@@ -135,10 +140,12 @@ async def list_documents(
     dataset_id: str | None = None,
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
 ):
-    """分页查询文档列表，可按 dataset_id 过滤"""
+    """分页查询文档列表，可按 dataset_id 过滤，自动按 org_id 隔离"""
     pg_store = request.app.state.pg_store
-    records, total = await pg_store.list_documents(page=page, size=size, dataset_id=dataset_id)
+    org_id = user.get("org_id", "") or ""
+    records, total = await pg_store.list_documents(page=page, size=size, dataset_id=dataset_id, org_id=org_id)
 
     items = [
         DocumentListItem(
@@ -162,12 +169,13 @@ async def list_documents(
 
 
 @router.post("/ingest", response_model=IngestResponse, summary="摄入文档")
-async def ingest_documents(request: Request, body: IngestRequest):
+async def ingest_documents(request: Request, body: IngestRequest, user: dict = Depends(get_current_user)):
     """对指定文档提交解析任务。仅处理 status=pending/failed 的文档，立即返回，后台异步执行。"""
     pg_store = request.app.state.pg_store
     oss_store = request.app.state.oss_store
     milvus_store = request.app.state.milvus_store
     embedder = request.app.state.embedder
+    org_id = user.get("org_id", "") or ""
 
     from src.ingestion.pipeline import IngestionPipeline
 
@@ -184,6 +192,9 @@ async def ingest_documents(request: Request, body: IngestRequest):
         doc = await pg_store.get_document(doc_id)
         if doc is None:
             results.append(IngestResult(doc_id=doc_id, filename="", status="failed", error_msg="文档不存在"))
+            continue
+        if doc.org_id and doc.org_id != org_id:
+            results.append(IngestResult(doc_id=doc_id, filename=doc.filename, status="failed", error_msg="无权操作该文档"))
             continue
 
         if doc.status not in ("pending", "failed", "done"):
@@ -251,15 +262,25 @@ async def _run_ingest(
 
 
 @router.delete("/{doc_id}", summary="删除文档")
-async def delete_document(request: Request, doc_id: str):
-    """删除文档及其关联的向量、分块记录和 OSS 文件"""
+async def delete_document(request: Request, doc_id: str, user: dict = Depends(get_current_user)):
+    """删除文档及其关联的向量、分块记录和 OSS 文件。管理员可删除本组织任意文档，成员仅可删除自己的文档。"""
     pg_store = request.app.state.pg_store
     milvus_store = request.app.state.milvus_store
     oss_store = request.app.state.oss_store
+    org_id = user.get("org_id", "") or ""
+    user_id = user.get("user_id", "") or ""
 
     doc = await pg_store.get_document(doc_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.org_id and doc.org_id != org_id:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 权限检查：管理员可删任意，成员只删自己
+    membership = await pg_store.get_membership(org_id, user_id)
+    is_admin = membership is not None and membership.role == "admin"
+    if not is_admin and doc.created_by != user_id:
+        raise HTTPException(status_code=403, detail="无权删除他人的文档")
 
     milvus_store.delete_by_doc_id(doc_id)
     await pg_store.delete_chunks_by_doc(doc_id)
@@ -277,11 +298,14 @@ async def delete_document(request: Request, doc_id: str):
 
 
 @router.get("/{doc_id}/status", response_model=DocumentStatusResponse, summary="查询文档状态")
-async def get_document_status(request: Request, doc_id: str):
+async def get_document_status(request: Request, doc_id: str, user: dict = Depends(get_current_user)):
     """查询文档处理状态"""
     pg_store = request.app.state.pg_store
+    org_id = user.get("org_id", "") or ""
     doc = await pg_store.get_document(doc_id)
     if doc is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.org_id and doc.org_id != org_id:
         raise HTTPException(status_code=404, detail="文档不存在")
 
     return DocumentStatusResponse(
