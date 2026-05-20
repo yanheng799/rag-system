@@ -46,8 +46,9 @@ async function handleLogin() {
     authStore.setToken(resp.access_token)
     await authStore.fetchUser()
     message.success('登录成功')
-    const redirect = (route.query.redirect as string)
-      || (authStore.myOrgs.length === 0 ? '/orgs' : '/datasets')
+    const redirect = authStore.myOrgs.length === 0
+      ? '/orgs'
+      : ((route.query.redirect as string) || '/datasets')
     router.push(redirect)
   } catch (err: any) {
     message.error(err.message || '登录失败')
