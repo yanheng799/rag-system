@@ -23,7 +23,7 @@
           <a-button type="text" class="user-btn"><UserOutlined /><span class="user-name">{{ authStore.user?.display_name || authStore.user?.username || '用户' }}</span><DownOutlined class="arrow" /></a-button>
           <template #overlay>
             <a-menu @click="handleMenu">
-              <a-menu-item key="orgs"><TeamOutlined /> 组织管理</a-menu-item>
+              <a-menu-item key="orgs"><TeamOutlined /> 组织管理<a-badge v-if="pendingCount" :count="pendingCount" size="small" style="margin-left:8px" /></a-menu-item>
               <a-menu-divider />
               <a-menu-item key="logout" danger><LogoutOutlined /> 退出登录</a-menu-item>
             </a-menu>
@@ -36,13 +36,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { DatabaseOutlined, MessageOutlined, SearchOutlined, UserOutlined, DownOutlined, TeamOutlined, LogoutOutlined } from '@ant-design/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { getMyInvitations } from '@/api/auth'
 
 const route = useRoute(); const router = useRouter(); const authStore = useAuthStore()
+const pendingCount = ref(0)
 const navItems = [
   { key: 'datasets', to: '/datasets', label: '知识库', icon: DatabaseOutlined },
   { key: 'query', to: '/query', label: '问答', icon: MessageOutlined },
@@ -65,6 +67,10 @@ function handleMenu({ key }: { key: string }) {
 onMounted(async () => {
   try { await authStore.fetchUser() }
   catch { authStore.logout(); router.push('/login') }
+  try {
+    const invs = await getMyInvitations()
+    pendingCount.value = invs.filter(i => !i.expired).length
+  } catch { /* ignore */ }
 })
 </script>
 
