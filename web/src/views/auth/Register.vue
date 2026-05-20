@@ -104,7 +104,7 @@ async function handleRegister() {
     const resp = await login({ username: form.username, password: form.password })
     authStore.setToken(resp.access_token)
     await authStore.fetchUser()
-    router.push('/datasets')
+    router.push(authStore.myOrgs.length === 0 ? '/orgs' : '/datasets')
   } catch (err: any) {
     message.error(err.message || '注册失败')
   } finally {

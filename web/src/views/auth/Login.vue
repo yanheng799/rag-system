@@ -66,7 +66,9 @@ async function handleLogin() {
     authStore.setToken(resp.access_token)
     await authStore.fetchUser()
     message.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/datasets'
+    // 无组织用户 → 引导到组织页（创建或接受邀请）
+    const redirect = (route.query.redirect as string)
+      || (authStore.myOrgs.length === 0 ? '/orgs' : '/datasets')
     router.push(redirect)
   } catch (err: any) {
     message.error(err.message || '登录失败')
