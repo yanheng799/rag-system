@@ -5,7 +5,9 @@ from __future__ import annotations
 import contextlib
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from src.api.deps import get_current_user
 
 from src.api.schemas.datasets import (
     DatasetCreateRequest,
@@ -14,7 +16,7 @@ from src.api.schemas.datasets import (
     DatasetUpdateRequest,
 )
 
-router = APIRouter(prefix="/api/v1/datasets", tags=["数据集管理"])
+router = APIRouter(prefix="/api/v1/datasets", tags=["数据集管理"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=DatasetResponse, status_code=201, summary="创建数据集")

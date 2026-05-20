@@ -9,8 +9,9 @@ import logging
 import os
 from datetime import UTC
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
+from src.api.deps import get_current_user
 from src.api.schemas.documents import (
     DocumentListItem,
     DocumentListResponse,
@@ -22,7 +23,7 @@ from src.api.schemas.documents import (
 )
 from src.ingestion.pipeline import generate_doc_id
 
-router = APIRouter(prefix="/api/v1/documents", tags=["文档管理"])
+router = APIRouter(prefix="/api/v1/documents", tags=["文档管理"], dependencies=[Depends(get_current_user)])
 
 logger = logging.getLogger(__name__)
 

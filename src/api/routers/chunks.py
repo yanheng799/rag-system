@@ -6,7 +6,9 @@ import contextlib
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from src.api.deps import get_current_user
 
 from src.api.schemas.chunks import (
     ChunkDetail,
@@ -25,7 +27,7 @@ from src.api.schemas.chunks import (
     UnlinkResponse,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["分块管理"])
+router = APIRouter(prefix="/api/v1", tags=["分块管理"], dependencies=[Depends(get_current_user)])
 
 EMBEDDING_MAX_CHARS = 2048
 
