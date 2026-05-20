@@ -24,7 +24,35 @@
       </nav>
 
       <div class="header-right">
-        <div class="header-indicator"></div>
+        <!-- 组织切换 -->
+        <a-select
+          v-if="authStore.myOrgs.length > 0"
+          :value="authStore.currentOrgId"
+          size="small"
+          class="org-switcher"
+          :options="authStore.myOrgs.map((o: any) => ({ value: o.org_id, label: o.name }))"
+          @change="handleSwitchOrg"
+        />
+
+        <!-- 用户菜单 -->
+        <a-dropdown :trigger="['click']">
+          <a-button type="text" class="user-btn">
+            <UserOutlined />
+            <span class="user-name">{{ authStore.user?.display_name || authStore.user?.username || '用户' }}</span>
+            <DownOutlined class="dropdown-arrow" />
+          </a-button>
+          <template #overlay>
+            <a-menu @click="handleMenuClick">
+              <a-menu-item key="orgs">
+                <TeamOutlined /> 组织管理
+              </a-menu-item>
+              <a-menu-divider />
+              <a-menu-item key="logout" danger>
+                <LogoutOutlined /> 退出登录
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
       </div>
     </header>
     <a-layout-content>
@@ -34,13 +62,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, type Component } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { message } from 'ant-design-vue'
 import {
   DatabaseOutlined,
   MessageOutlined,
   SearchOutlined,
+  UserOutlined,
+  DownOutlined,
+  TeamOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons-vue'
+import { useAuthStore } from '@/stores/auth'
 
 interface NavItem {
   key: string
@@ -50,6 +84,8 @@ interface NavItem {
 }
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 
 const navItems: NavItem[] = [
   { key: 'datasets', to: '/datasets', label: '知识库', icon: DatabaseOutlined },
@@ -62,6 +98,32 @@ const currentNav = computed(() => {
   if (path.startsWith('/query')) return 'query'
   if (path.startsWith('/retrieve')) return 'retrieve'
   return 'datasets'
+})
+
+async function handleSwitchOrg(orgId: string) {
+  try {
+    await authStore.switchOrg(orgId)
+    message.success('已切换到 ' + authStore.currentOrg?.name)
+  } catch (err: any) {
+    message.error(err.message || '切换失败')
+  }
+}
+
+function handleMenuClick({ key }: { key: string }) {
+  if (key === 'orgs') {
+    router.push('/orgs')
+  } else if (key === 'logout') {
+    authStore.logout()
+    router.push('/login')
+  }
+}
+
+onMounted(async () => {
+  try {
+    await authStore.fetchUser()
+  } catch {
+    // 未登录，让路由守卫处理
+  }
 })
 </script>
 
@@ -139,14 +201,39 @@ const currentNav = computed(() => {
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: var(--space-4);
 }
 
-.header-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #34d399;
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+.org-switcher {
+  width: 160px;
+}
+
+.org-switcher :deep(.ant-select-selection-item) {
+  color: #e0e7ff;
+}
+
+.user-btn {
+  color: #e0e7ff;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.user-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.user-name {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  margin-left: 2px;
 }
 
 @media (max-width: 768px) {
@@ -158,6 +245,12 @@ const currentNav = computed(() => {
   }
   .nav-item span {
     display: none;
+  }
+  .user-name {
+    display: none;
+  }
+  .org-switcher {
+    width: 100px;
   }
 }
 </style>
