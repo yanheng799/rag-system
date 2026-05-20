@@ -34,13 +34,20 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchUser() {
-    const resp = await getMe()
-    user.value = resp
+    user.value = await getMe()
     const orgs = await listMyOrgs()
     myOrgs.value = orgs
     if (orgs.length > 0) {
       const found = orgs.find((o) => o.org_id === currentOrgId.value)
-      if (!found) setCurrentOrg(orgs[0].org_id)
+      if (!found) {
+        // 自动切换到第一个组织，获取含 org_id 的有效 token
+        const resp = await switchOrgApi(orgs[0].org_id)
+        setToken(resp.access_token)
+        setCurrentOrg(orgs[0].org_id)
+        // 用新 token 刷新用户信息
+        user.value = await getMe()
+        myOrgs.value = await listMyOrgs()
+      }
     }
   }
 
