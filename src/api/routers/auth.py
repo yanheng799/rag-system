@@ -111,7 +111,7 @@ async def switch_org(request: Request, body: SwitchOrgRequest):
 
 @router.get("/invitations", response_model=list[InvitationResponse])
 async def list_invitations(request: Request):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     payload = _get_token(request)
     user_id = payload["user_id"]
@@ -120,7 +120,7 @@ async def list_invitations(request: Request):
     invitations = await pg_store.list_invitations_by_user(user_id)
 
     result = []
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     for inv in invitations:
         expired = False
         status = inv.status
@@ -145,7 +145,7 @@ async def list_invitations(request: Request):
 
 @router.post("/invitations/{invitation_id}/accept", status_code=200)
 async def accept_invitation(request: Request, invitation_id: str):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     payload = _get_token(request)
     user_id = payload["user_id"]
@@ -159,7 +159,7 @@ async def accept_invitation(request: Request, invitation_id: str):
     if inv.status != "pending":
         raise HTTPException(status_code=410, detail="邀请已失效")
     if inv.created_at is not None:
-        if datetime.now(timezone.utc) - inv.created_at > timedelta(days=7):
+        if datetime.utcnow() - inv.created_at > timedelta(days=7):
             raise HTTPException(status_code=410, detail="邀请已过期")
 
     import uuid
@@ -176,7 +176,7 @@ async def accept_invitation(request: Request, invitation_id: str):
 
 @router.post("/invitations/{invitation_id}/reject", status_code=200)
 async def reject_invitation(request: Request, invitation_id: str):
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     payload = _get_token(request)
     user_id = payload["user_id"]
@@ -190,7 +190,7 @@ async def reject_invitation(request: Request, invitation_id: str):
     if inv.status != "pending":
         raise HTTPException(status_code=410, detail="邀请已失效")
     if inv.created_at is not None:
-        if datetime.now(timezone.utc) - inv.created_at > timedelta(days=7):
+        if datetime.utcnow() - inv.created_at > timedelta(days=7):
             raise HTTPException(status_code=410, detail="邀请已过期")
 
     await pg_store.update_invitation_status(invitation_id, "rejected")

@@ -31,12 +31,23 @@
         </a-dropdown>
       </div>
     </header>
+    <a-alert
+      v-if="pendingCount > 0 && route.path !== '/orgs'"
+      type="info"
+      show-icon
+      :message="`您有 ${pendingCount} 个待处理的组织邀请`"
+      style="margin: 16px 24px 0; border-radius: 8px"
+    >
+      <template #action>
+        <a-button size="small" type="primary" @click="router.push('/orgs')">查看邀请</a-button>
+      </template>
+    </a-alert>
     <a-layout-content><router-view /></a-layout-content>
   </a-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { DatabaseOutlined, MessageOutlined, SearchOutlined, UserOutlined, DownOutlined, TeamOutlined, LogoutOutlined } from '@ant-design/icons-vue'
@@ -45,6 +56,13 @@ import { getMyInvitations } from '@/api/auth'
 
 const route = useRoute(); const router = useRouter(); const authStore = useAuthStore()
 const pendingCount = ref(0)
+
+async function refreshPendingCount() {
+  try {
+    const invs = await getMyInvitations()
+    pendingCount.value = invs.filter(i => i.status === 'pending' && !i.expired).length
+  } catch { /* ignore */ }
+}
 const navItems = [
   { key: 'datasets', to: '/datasets', label: '知识库', icon: DatabaseOutlined },
   { key: 'query', to: '/query', label: '问答', icon: MessageOutlined },
@@ -67,11 +85,9 @@ function handleMenu({ key }: { key: string }) {
 onMounted(async () => {
   try { await authStore.fetchUser() }
   catch { authStore.logout(); router.push('/login') }
-  try {
-    const invs = await getMyInvitations()
-    pendingCount.value = invs.filter(i => !i.expired).length
-  } catch { /* ignore */ }
+  await refreshPendingCount()
 })
+watch(() => route.path, () => refreshPendingCount())
 </script>
 
 <style scoped>

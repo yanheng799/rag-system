@@ -71,41 +71,54 @@ class MilvusStore(VectorStorePort):
             description="RAG 分块向量索引（含 BM25 全文检索）",
         )
 
+    def _ensure_schema_compatible(self) -> None:
+        """检查已有 collection 是否包含 org_id 字段，缺少时重建（开发环境）"""
+        if self._has_org_id_field():
+            return
+        logger.warning("Collection '%s' 缺少 org_id 字段，将重建 collection（已有向量数据会丢失）", self._collection_name)
+        utility.drop_collection(self._collection_name)
+        schema = self._get_schema()
+        self._collection = Collection(name=self._collection_name, schema=schema)
+        self._create_indexes()
+        logger.info("Collection '%s' 已重建，包含 org_id 字段", self._collection_name)
+
+    def _create_indexes(self) -> None:
+        """创建向量索引、BM25 稀疏索引和 org_id 标量索引"""
+        index_params = {
+            "metric_type": settings.milvus_metric_type,
+            "index_type": settings.milvus_index_type,
+            "params": {
+                "M": settings.milvus_hnsw_m,
+                "efConstruction": settings.milvus_hnsw_ef_construction,
+            },
+        }
+        self._collection.create_index(field_name="embedding", index_params=index_params)
+        sparse_index_params = {
+            "index_type": "SPARSE_INVERTED_INDEX",
+            "metric_type": "BM25",
+            "params": {
+                "inverted_index_algo": "DAAT_MAXSCORE",
+                "bm25_k1": settings.bm25_k1,
+                "bm25_b": settings.bm25_b,
+            },
+        }
+        self._collection.create_index(field_name="sparse_embedding", index_params=sparse_index_params)
+        self._collection.create_index(
+            field_name="org_id",
+            index_params={"index_type": "STL_SORT"},
+        )
+
     def init_collection(self) -> None:
         """初始化 Collection"""
         self._connect()
         if utility.has_collection(self._collection_name):
             logger.info("Milvus Collection '%s' 已存在", self._collection_name)
             self._collection = Collection(self._collection_name)
+            self._ensure_schema_compatible()
         else:
             schema = self._get_schema()
             self._collection = Collection(name=self._collection_name, schema=schema)
-            # 创建 HNSW 索引
-            index_params = {
-                "metric_type": settings.milvus_metric_type,
-                "index_type": settings.milvus_index_type,
-                "params": {
-                    "M": settings.milvus_hnsw_m,
-                    "efConstruction": settings.milvus_hnsw_ef_construction,
-                },
-            }
-            self._collection.create_index(field_name="embedding", index_params=index_params)
-            # 创建 BM25 稀疏索引
-            sparse_index_params = {
-                "index_type": "SPARSE_INVERTED_INDEX",
-                "metric_type": "BM25",
-                "params": {
-                    "inverted_index_algo": "DAAT_MAXSCORE",
-                    "bm25_k1": settings.bm25_k1,
-                    "bm25_b": settings.bm25_b,
-                },
-            }
-            self._collection.create_index(field_name="sparse_embedding", index_params=sparse_index_params)
-            # 创建 org_id 标量索引
-            self._collection.create_index(
-                field_name="org_id",
-                index_params={"index_type": "STL_SORT"},
-            )
+            self._create_indexes()
             logger.info(
                 "Milvus Collection '%s' 创建成功，索引类型: %s",
                 self._collection_name,
@@ -157,6 +170,7 @@ class MilvusStore(VectorStorePort):
                     ft_max_len = field.params.get("max_length", FULL_TEXT_MAX_LENGTH)
                     break
 
+        has_org_id = self._has_org_id_field()
         data = []
         for r in records:
             text = r["full_text"]
@@ -168,7 +182,7 @@ class MilvusStore(VectorStorePort):
                     ft_max_len,
                 )
                 text = text[:ft_max_len]
-            data.append({
+            row = {
                 "embedding": r["embedding"],
                 "chunk_id": r["chunk_id"],
                 "doc_id": r["doc_id"],
@@ -183,8 +197,10 @@ class MilvusStore(VectorStorePort):
                 "created_at": r["created_at"],
                 "pages": json.dumps(r.get("pages", [r["page"]]), ensure_ascii=False),
                 "group_id": r.get("group_id", ""),
-                "org_id": r.get("org_id", ""),
-            })
+            }
+            if has_org_id:
+                row["org_id"] = r.get("org_id", "")
+            data.append(row)
         result = self._collection.insert(data)
         self._collection.flush()
         logger.info("Milvus 插入 %d 条记录", len(data))

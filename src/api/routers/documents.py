@@ -97,8 +97,7 @@ async def upload_documents(
 
         # 新文件
         doc_id = generate_doc_id()
-        raw_file_url = f"raw-docs/{doc_id}/{filename}"
-        oss_store.upload_raw_doc(doc_id, filename, file_data, org_id=org_id)
+        raw_file_url = oss_store.upload_raw_doc(doc_id, filename, file_data, org_id=org_id)
 
         from src.models.documents import DocumentRecord
 
@@ -220,7 +219,7 @@ async def ingest_documents(request: Request, body: IngestRequest, user: dict = D
         # 创建后台解析任务
         chunk_opts = body.chunk_options
         task = asyncio.create_task(
-            _run_ingest(doc_id, doc.file_type, doc.raw_file_url, pipeline, oss_store, chunk_opts, doc.filename, org_id)
+            _run_ingest(doc_id, doc.file_type, doc.raw_file_url, pipeline, oss_store, pg_store, chunk_opts, doc.filename, org_id)
         )
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
@@ -237,23 +236,27 @@ async def _run_ingest(
     raw_file_url: str,
     pipeline,  # IngestionPipeline — 避免循环导入
     oss_store,  # ObjectStorePort — 避免循环导入
+    pg_store,  # DocumentStorePort — 避免循环导入
     chunk_options=None,  # ChunkOptions | None
     original_filename: str | None = None,
     org_id: str | None = None,
 ) -> None:
     """后台执行文档解析，完成后更新状态"""
+    logger.info("后台摄入任务启动: doc_id=%s, file_type=%s, raw_file_url=%s", doc_id, file_type, raw_file_url)
     tmp_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
     tmp_path = os.path.join(tmp_dir, f"{doc_id}.{file_type}")
 
     try:
         file_data = oss_store.download(raw_file_url)
+        logger.info("文件下载完成: doc_id=%s, size=%d", doc_id, len(file_data))
         with open(tmp_path, "wb") as f:
             f.write(file_data)
 
         await pipeline.ingest(doc_id, tmp_path, file_type, skip_oss_upload=True, chunk_options=chunk_options, original_filename=original_filename, org_id=org_id)
-    except Exception:
+    except Exception as e:
         logger.exception("后台文档摄入失败: doc_id=%s", doc_id)
+        await pg_store.update_status(doc_id, "failed", error_msg=str(e))
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

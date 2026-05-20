@@ -27,7 +27,7 @@
             </a-list-item-meta>
             <template #actions>
               <template v-if="!item.expired">
-                <a-button type="primary" size="small" @click="handleAccept(item.invitation_id)">接受</a-button>
+                <a-button type="primary" size="small" @click="handleAccept(item)">接受</a-button>
                 <a-button size="small" @click="handleReject(item.invitation_id)">拒绝</a-button>
               </template>
             </template>
@@ -62,18 +62,21 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { createOrg } from '@/api/orgs'
 import { getMyInvitations, acceptInvitation, rejectInvitation } from '@/api/auth'
 
 const authStore = useAuthStore()
+const router = useRouter()
 const loading = ref(false)
 const showCreate = ref(false)
 const creating = ref(false)
 const createName = ref('')
 const createDesc = ref('')
-const invitations = ref<any[]>([])
+const allInvitations = ref<any[]>([])
+const invitations = computed(() => allInvitations.value.filter(i => i.status === 'pending' && !i.expired))
 const myOrgs = computed(() => authStore.myOrgs)
 
 async function load() {
@@ -82,7 +85,7 @@ async function load() {
     await authStore.fetchUser()
   } catch { /* fetchUser 失败不阻塞邀请加载 */ }
   try {
-    invitations.value = await getMyInvitations()
+    allInvitations.value = await getMyInvitations()
   } catch { /* ignore */ }
   loading.value = false
 }
@@ -104,13 +107,19 @@ async function handleSwitch(orgId: string) {
   catch (err: any) { message.error(err.message || '切换失败') }
 }
 
-async function handleAccept(id: string) {
-  try { await acceptInvitation(id); message.success('已加入'); await authStore.fetchUser(); invitations.value = await getMyInvitations() }
+async function handleAccept(item: any) {
+  try {
+    await acceptInvitation(item.invitation_id)
+    message.success('已加入')
+    await authStore.switchOrg(item.org_id)
+    allInvitations.value = await getMyInvitations()
+    router.push('/datasets')
+  }
   catch (err: any) { message.error(err.message) }
 }
 
 async function handleReject(id: string) {
-  try { await rejectInvitation(id); message.success('已拒绝'); invitations.value = await getMyInvitations() }
+  try { await rejectInvitation(id); message.success('已拒绝'); allInvitations.value = await getMyInvitations() }
   catch (err: any) { message.error(err.message) }
 }
 
