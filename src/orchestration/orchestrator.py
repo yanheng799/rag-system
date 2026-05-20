@@ -62,7 +62,7 @@ class RAGOrchestrator:
 
         # 1. 向量检索
         retrieval_start = time.time()
-        chunks = self._searcher.search(question, top_k=top_k, filters=filters)
+        chunks = self._searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
         retrieval_ms = int((time.time() - retrieval_start) * 1000)
 
         # 1.5 批量查询文档的真实 filename（用于 Prompt 和响应）
@@ -120,6 +120,7 @@ class RAGOrchestrator:
         top_k: int = 5,
         user_id: str | None = None,
         filters: dict | None = None,
+        org_id: str | None = None,
     ):
         """
         流式问答：
@@ -128,7 +129,7 @@ class RAGOrchestrator:
         3. 最后 yield 来源信息
         """
         # 检索
-        chunks = self._searcher.search(question, top_k=top_k, filters=filters)
+        chunks = self._searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
 
         # 批量查询文档的真实 filename
         unique_doc_ids = list({c.metadata.doc_id for c in chunks})

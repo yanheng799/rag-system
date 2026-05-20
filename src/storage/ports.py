@@ -24,15 +24,26 @@ class VectorStorePort(ABC):
         embedding: list[float],
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[dict]:
         """向量检索，返回匹配结果列表"""
 
     @abstractmethod
-    def delete_by_doc_id(self, doc_id: str) -> None:
+    def bm25_search(
+        self,
+        query_text: str,
+        top_k: int = 50,
+        filters: dict | None = None,
+        org_id: str | None = None,
+    ) -> list[dict]:
+        """BM25 全文检索"""
+
+    @abstractmethod
+    def delete_by_doc_id(self, doc_id: str, org_id: str | None = None) -> None:
         """按文档 ID 删除所有相关向量记录"""
 
     @abstractmethod
-    def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
+    def delete_by_chunk_ids(self, chunk_ids: list[str], org_id: str | None = None) -> None:
         """按 chunk_id 列表删除指定向量记录"""
 
     @abstractmethod

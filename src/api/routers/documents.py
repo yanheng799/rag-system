@@ -220,7 +220,7 @@ async def ingest_documents(request: Request, body: IngestRequest, user: dict = D
         # 创建后台解析任务
         chunk_opts = body.chunk_options
         task = asyncio.create_task(
-            _run_ingest(doc_id, doc.file_type, doc.raw_file_url, pipeline, oss_store, chunk_opts, doc.filename)
+            _run_ingest(doc_id, doc.file_type, doc.raw_file_url, pipeline, oss_store, chunk_opts, doc.filename, org_id)
         )
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
@@ -239,6 +239,7 @@ async def _run_ingest(
     oss_store,  # ObjectStorePort — 避免循环导入
     chunk_options=None,  # ChunkOptions | None
     original_filename: str | None = None,
+    org_id: str | None = None,
 ) -> None:
     """后台执行文档解析，完成后更新状态"""
     tmp_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tmp")
@@ -250,7 +251,7 @@ async def _run_ingest(
         with open(tmp_path, "wb") as f:
             f.write(file_data)
 
-        await pipeline.ingest(doc_id, tmp_path, file_type, skip_oss_upload=True, chunk_options=chunk_options, original_filename=original_filename)
+        await pipeline.ingest(doc_id, tmp_path, file_type, skip_oss_upload=True, chunk_options=chunk_options, original_filename=original_filename, org_id=org_id)
     except Exception:
         logger.exception("后台文档摄入失败: doc_id=%s", doc_id)
     finally:

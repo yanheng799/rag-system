@@ -39,9 +39,10 @@ class FakeVectorStore:
         self.last_embedding = None
         self.last_filters = None
 
-    def search(self, embedding, top_k=50, filters=None):
+    def search(self, embedding, top_k=50, filters=None, org_id=None):
         self.last_embedding = embedding
         self.last_filters = filters
+        self.last_org_id = org_id
         return self._hits
 
     def fetch_by_group_ids(self, group_ids):
@@ -54,9 +55,10 @@ class FakeMilvusStore:
         self.last_query = None
         self.last_filters = None
 
-    def bm25_search(self, query_text, top_k=50, filters=None):
+    def bm25_search(self, query_text, top_k=50, filters=None, org_id=None):
         self.last_query = query_text
         self.last_filters = filters
+        self.last_org_id = org_id
         return self._hits
 
     def fetch_by_group_ids(self, group_ids):
