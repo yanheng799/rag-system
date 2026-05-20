@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from src.api.auth_utils import create_access_token, decode_access_token, hash_password, verify_password
 from src.api.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from src.api.schemas.orgs import SwitchOrgRequest
 
 router = APIRouter(prefix="/api/v1/auth", tags=["认证管理"])
 
@@ -92,3 +93,17 @@ async def get_me(request: Request):
         created_at=user.created_at,
         organizations=organizations,
     )
+
+
+@router.post("/switch-org", response_model=TokenResponse)
+async def switch_org(request: Request, body: SwitchOrgRequest):
+    payload = _get_token(request)
+    user_id = payload["user_id"]
+    pg_store = request.app.state.pg_store
+
+    membership = await pg_store.get_membership(body.org_id, user_id)
+    if membership is None:
+        raise HTTPException(status_code=403, detail="您不是该组织的成员")
+
+    token = create_access_token(user_id, org_id=body.org_id)
+    return TokenResponse(access_token=token)

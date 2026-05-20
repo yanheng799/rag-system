@@ -6,8 +6,24 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config.settings import settings
-from src.models.documents import ChunkRecord, DatasetRecord, DocumentRecord, QueryLogRecord, UserRecord
-from src.storage.pg_models import ChunkORM, DatasetORM, DocumentORM, QueryLogORM, UserORM
+from src.models.documents import (
+    ChunkRecord,
+    DatasetRecord,
+    DocumentRecord,
+    MembershipRecord,
+    OrganizationRecord,
+    QueryLogRecord,
+    UserRecord,
+)
+from src.storage.pg_models import (
+    ChunkORM,
+    DatasetORM,
+    DocumentORM,
+    MembershipORM,
+    OrganizationORM,
+    QueryLogORM,
+    UserORM,
+)
 from src.storage.ports import DocumentStorePort
 
 
@@ -458,5 +474,176 @@ class PgStore(DocumentStorePort):
                 return None
             return self._user_orm_to_record(orm)
 
-    async def get_user_memberships(self, user_id: str) -> list:
-        return []
+    async def get_user_memberships(self, user_id: str) -> list[MembershipRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(MembershipORM, OrganizationORM)
+                .join(OrganizationORM, MembershipORM.org_id == OrganizationORM.org_id)
+                .where(MembershipORM.user_id == user_id)
+            )
+            rows = result.all()
+            return [
+                MembershipRecord(
+                    membership_id=m.membership_id,
+                    org_id=m.org_id,
+                    user_id=m.user_id,
+                    role=m.role,
+                    org_name=o.name,
+                    joined_at=m.joined_at,
+                )
+                for m, o in rows
+            ]
+
+    # ---- 组织管理 ----
+
+    @staticmethod
+    def _org_orm_to_record(orm: OrganizationORM) -> OrganizationRecord:
+        return OrganizationRecord(
+            org_id=orm.org_id,
+            name=orm.name,
+            description=orm.description,
+            created_by=orm.created_by,
+            created_at=orm.created_at,
+            updated_at=orm.updated_at,
+        )
+
+    @staticmethod
+    def _membership_orm_to_record(orm: MembershipORM) -> MembershipRecord:
+        return MembershipRecord(
+            membership_id=orm.membership_id,
+            org_id=orm.org_id,
+            user_id=orm.user_id,
+            role=orm.role,
+            joined_at=orm.joined_at,
+        )
+
+    async def create_organization(
+        self,
+        org_id: str,
+        name: str,
+        created_by: str,
+        description: str | None = None,
+    ) -> OrganizationRecord:
+        async with self._session_factory() as session:
+            orm = OrganizationORM(
+                org_id=org_id,
+                name=name,
+                description=description,
+                created_by=created_by,
+            )
+            session.add(orm)
+            await session.commit()
+            await session.refresh(orm)
+            return self._org_orm_to_record(orm)
+
+    async def get_organization_by_name(self, name: str) -> OrganizationRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(select(OrganizationORM).where(OrganizationORM.name == name))
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._org_orm_to_record(orm)
+
+    async def get_organization(self, org_id: str) -> OrganizationRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(select(OrganizationORM).where(OrganizationORM.org_id == org_id))
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._org_orm_to_record(orm)
+
+    async def update_organization(
+        self,
+        org_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> OrganizationRecord | None:
+        async with self._session_factory() as session:
+            values = {}
+            if name is not None:
+                values["name"] = name
+            if description is not None:
+                values["description"] = description
+            if not values:
+                return await self.get_organization(org_id)
+
+            stmt = update(OrganizationORM).where(OrganizationORM.org_id == org_id).values(**values)
+            await session.execute(stmt)
+            await session.commit()
+
+        return await self.get_organization(org_id)
+
+    # ---- 成员管理 ----
+
+    async def create_membership(
+        self,
+        membership_id: str,
+        org_id: str,
+        user_id: str,
+        role: str = "member",
+    ) -> MembershipRecord:
+        async with self._session_factory() as session:
+            orm = MembershipORM(
+                membership_id=membership_id,
+                org_id=org_id,
+                user_id=user_id,
+                role=role,
+            )
+            session.add(orm)
+            await session.commit()
+            await session.refresh(orm)
+            return self._membership_orm_to_record(orm)
+
+    async def get_membership(self, org_id: str, user_id: str) -> MembershipRecord | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(MembershipORM).where(
+                    MembershipORM.org_id == org_id,
+                    MembershipORM.user_id == user_id,
+                )
+            )
+            orm = result.scalar_one_or_none()
+            if orm is None:
+                return None
+            return self._membership_orm_to_record(orm)
+
+    async def list_memberships_by_user(self, user_id: str) -> list[MembershipRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(MembershipORM, OrganizationORM)
+                .join(OrganizationORM, MembershipORM.org_id == OrganizationORM.org_id)
+                .where(MembershipORM.user_id == user_id)
+            )
+            rows = result.all()
+            return [
+                MembershipRecord(
+                    membership_id=m.membership_id,
+                    org_id=m.org_id,
+                    user_id=m.user_id,
+                    role=m.role,
+                    org_name=o.name,
+                    joined_at=m.joined_at,
+                )
+                for m, o in rows
+            ]
+
+    async def list_members_by_org(self, org_id: str) -> list[MembershipRecord]:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(MembershipORM, UserORM)
+                .join(UserORM, MembershipORM.user_id == UserORM.user_id)
+                .where(MembershipORM.org_id == org_id)
+            )
+            rows = result.all()
+            return [
+                MembershipRecord(
+                    membership_id=m.membership_id,
+                    org_id=m.org_id,
+                    user_id=m.user_id,
+                    role=m.role,
+                    username=u.username,
+                    display_name=u.display_name,
+                    joined_at=m.joined_at,
+                )
+                for m, u in rows
+            ]

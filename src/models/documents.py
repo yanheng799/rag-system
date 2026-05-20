@@ -69,6 +69,32 @@ class ChunkRecord:
 
 
 @dataclass
+class OrganizationRecord:
+    """组织记录"""
+
+    org_id: str
+    name: str
+    description: str | None = None
+    created_by: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class MembershipRecord:
+    """成员关系记录"""
+
+    membership_id: str
+    org_id: str
+    user_id: str
+    role: str = "member"  # admin | member
+    org_name: str = ""
+    username: str = ""
+    display_name: str | None = None
+    joined_at: datetime | None = None
+
+
+@dataclass
 class QueryLogRecord:
     """查询日志记录"""
 

@@ -108,6 +108,37 @@ class ChunkORM(Base):
     )
 
 
+class OrganizationORM(Base):
+    __tablename__ = "rag_organizations"
+
+    org_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("idx_orgs_name", "name"),)
+
+
+class MembershipORM(Base):
+    __tablename__ = "rag_memberships"
+
+    membership_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("rag_organizations.org_id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("rag_users.user_id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_memberships_org_id", "org_id"),
+        Index("idx_memberships_user_id", "user_id"),
+        Index("idx_memberships_org_user", "org_id", "user_id", unique=True),
+    )
+
+
 class QueryLogORM(Base):
     __tablename__ = "rag_query_logs"
 

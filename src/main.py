@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
-from src.api.routers import auth, chunks, datasets, documents, images, query, retrieve
+from src.api.routers import auth, chunks, datasets, documents, images, orgs, query, retrieve
 from src.ingestion.chunkers.registry import init_chunkers
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import init_parsers
@@ -117,6 +117,7 @@ app.include_router(chunks.router)
 app.include_router(datasets.router)
 app.include_router(documents.router)
 app.include_router(images.router)
+app.include_router(orgs.router)
 app.include_router(query.router)
 app.include_router(retrieve.router)
 
