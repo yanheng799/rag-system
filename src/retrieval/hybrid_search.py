@@ -28,6 +28,7 @@ class HybridSearcher:
         question: str,
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[RetrievedChunk]:
         """
         混合检索流程：
@@ -35,8 +36,8 @@ class HybridSearcher:
         2. 使用 RRF 融合两路结果
         3. 返回融合后排序结果
         """
-        vector_chunks = self._vector_searcher.search(question, top_k=top_k, filters=filters)
-        bm25_chunks = self._bm25_searcher.search(question, top_k=top_k, filters=filters)
+        vector_chunks = self._vector_searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
+        bm25_chunks = self._bm25_searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
 
         logger.info(
             "混合检索: 向量 %d 条, BM25 %d 条",

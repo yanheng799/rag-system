@@ -56,6 +56,7 @@ class MilvusStore(VectorStorePort):
             FieldSchema("created_at", DataType.VARCHAR, max_length=32),
             FieldSchema("pages", DataType.VARCHAR, max_length=256),
             FieldSchema("group_id", DataType.VARCHAR, max_length=128),
+            FieldSchema("org_id", DataType.VARCHAR, max_length=64),
             FieldSchema("sparse_embedding", DataType.SPARSE_FLOAT_VECTOR),
         ]
         bm25_function = Function(
@@ -100,12 +101,48 @@ class MilvusStore(VectorStorePort):
                 },
             }
             self._collection.create_index(field_name="sparse_embedding", index_params=sparse_index_params)
+            # 创建 org_id 标量索引
+            self._collection.create_index(
+                field_name="org_id",
+                index_params={"index_type": "STL_SORT"},
+            )
             logger.info(
                 "Milvus Collection '%s' 创建成功，索引类型: %s",
                 self._collection_name,
                 settings.milvus_index_type,
             )
         self._collection.load()
+
+    def _has_org_id_field(self) -> bool:
+        """检查当前 collection 是否包含 org_id 字段"""
+        if self._collection is None:
+            return False
+        return any(f.name == "org_id" for f in self._collection.schema.fields)
+
+    def _build_expr(self, filters: dict | None = None, org_id: str | None = None) -> str | None:
+        """构建 Milvus 过滤表达式，自动合并 org_id 过滤"""
+        conditions = []
+        if filters:
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    values_str = ", ".join(f'"{v}"' for v in value)
+                    conditions.append(f"{key} in [{values_str}]")
+                else:
+                    conditions.append(f'{key} == "{value}"')
+        if org_id and self._has_org_id_field():
+            conditions.append(f'org_id == "{org_id}"')
+        return " and ".join(conditions) if conditions else None
+
+    def _output_fields(self) -> list[str]:
+        """返回 output_fields，含 org_id（如果字段存在）"""
+        fields = [
+            "chunk_id", "doc_id", "full_text", "chunk_type",
+            "elements", "image_urls", "source", "page",
+            "chunk_index", "char_count", "created_at", "pages", "group_id",
+        ]
+        if self._has_org_id_field():
+            fields.append("org_id")
+        return fields
 
     def insert(self, records: list[dict]) -> list[int]:
         """批量插入向量记录"""
@@ -146,6 +183,7 @@ class MilvusStore(VectorStorePort):
                 "created_at": r["created_at"],
                 "pages": json.dumps(r.get("pages", [r["page"]]), ensure_ascii=False),
                 "group_id": r.get("group_id", ""),
+                "org_id": r.get("org_id", ""),
             })
         result = self._collection.insert(data)
         self._collection.flush()
@@ -157,22 +195,14 @@ class MilvusStore(VectorStorePort):
         embedding: list[float],
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[dict]:
-        """向量检索"""
+        """向量检索，可选按 org_id 过滤"""
         if self._collection is None:
             self.init_collection()
 
         search_params = {"metric_type": "COSINE", "params": {"ef": 128}}
-        expr = None
-        if filters:
-            conditions = []
-            for key, value in filters.items():
-                if isinstance(value, list):
-                    values_str = ", ".join(f'"{v}"' for v in value)
-                    conditions.append(f"{key} in [{values_str}]")
-                else:
-                    conditions.append(f'{key} == "{value}"')
-            expr = " and ".join(conditions)
+        expr = self._build_expr(filters, org_id)
 
         results = self._collection.search(
             data=[embedding],
@@ -180,21 +210,7 @@ class MilvusStore(VectorStorePort):
             param=search_params,
             limit=top_k,
             expr=expr,
-            output_fields=[
-                "chunk_id",
-                "doc_id",
-                "full_text",
-                "chunk_type",
-                "elements",
-                "image_urls",
-                "source",
-                "page",
-                "chunk_index",
-                "char_count",
-                "created_at",
-                "pages",
-                "group_id",
-            ],
+            output_fields=self._output_fields(),
         )
 
         hits = []
@@ -224,22 +240,14 @@ class MilvusStore(VectorStorePort):
         query_text: str,
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[dict]:
-        """BM25 全文检索"""
+        """BM25 全文检索，可选按 org_id 过滤"""
         if self._collection is None:
             self.init_collection()
 
         search_params = {"metric_type": "BM25"}
-        expr = None
-        if filters:
-            conditions = []
-            for key, value in filters.items():
-                if isinstance(value, list):
-                    values_str = ", ".join(f'"{v}"' for v in value)
-                    conditions.append(f"{key} in [{values_str}]")
-                else:
-                    conditions.append(f'{key} == "{value}"')
-            expr = " and ".join(conditions)
+        expr = self._build_expr(filters, org_id)
 
         results = self._collection.search(
             data=[query_text],
@@ -247,21 +255,7 @@ class MilvusStore(VectorStorePort):
             param=search_params,
             limit=top_k,
             expr=expr,
-            output_fields=[
-                "chunk_id",
-                "doc_id",
-                "full_text",
-                "chunk_type",
-                "elements",
-                "image_urls",
-                "source",
-                "page",
-                "chunk_index",
-                "char_count",
-                "created_at",
-                "pages",
-                "group_id",
-            ],
+            output_fields=self._output_fields(),
         )
 
         hits = []
@@ -294,21 +288,7 @@ class MilvusStore(VectorStorePort):
         expr = f"group_id in [{values}]"
         results = self._collection.query(
             expr=expr,
-            output_fields=[
-                "chunk_id",
-                "doc_id",
-                "full_text",
-                "chunk_type",
-                "elements",
-                "image_urls",
-                "source",
-                "page",
-                "chunk_index",
-                "char_count",
-                "created_at",
-                "pages",
-                "group_id",
-            ],
+            output_fields=self._output_fields(),
         )
         records = []
         for hit in results:
@@ -332,20 +312,25 @@ class MilvusStore(VectorStorePort):
             )
         return records
 
-    def delete_by_doc_id(self, doc_id: str) -> None:
-        """按文档 ID 删除所有向量记录"""
+    def delete_by_doc_id(self, doc_id: str, org_id: str | None = None) -> None:
+        """按文档 ID 删除向量记录，可选按 org_id 限定"""
         if self._collection is None:
             self.init_collection()
-        self._collection.delete(f'doc_id == "{doc_id}"')
-        logger.info("Milvus 删除 doc_id=%s 的所有记录", doc_id)
+        expr = f'doc_id == "{doc_id}"'
+        if org_id and self._has_org_id_field():
+            expr += f' and org_id == "{org_id}"'
+        self._collection.delete(expr)
+        logger.info("Milvus 删除 doc_id=%s 的记录", doc_id)
 
-    def delete_by_chunk_ids(self, chunk_ids: list[str]) -> None:
-        """按 chunk_id 列表删除指定向量记录"""
+    def delete_by_chunk_ids(self, chunk_ids: list[str], org_id: str | None = None) -> None:
+        """按 chunk_id 列表删除指定向量记录，可选按 org_id 限定"""
         if not chunk_ids:
             return
         if self._collection is None:
             self.init_collection()
         values = ", ".join(f'"{cid}"' for cid in chunk_ids)
         expr = f"chunk_id in [{values}]"
+        if org_id and self._has_org_id_field():
+            expr += f' and org_id == "{org_id}"'
         self._collection.delete(expr)
         logger.info("Milvus 删除 %d 条 chunk 记录", len(chunk_ids))

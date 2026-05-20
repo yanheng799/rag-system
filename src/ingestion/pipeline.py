@@ -50,6 +50,7 @@ class IngestionPipeline:
         skip_oss_upload: bool = False,
         chunk_options=None,
         original_filename: str | None = None,
+        org_id: str | None = None,
     ) -> None:
         """
         完整摄入流程：
@@ -200,6 +201,7 @@ class IngestionPipeline:
                         "created_at": chunk.metadata.created_at,
                         "pages": chunk.metadata.pages,
                         "group_id": chunk.metadata.group_id,
+                        "org_id": org_id or "",
                     }
                 )
             self._vector_store.insert(milvus_records)

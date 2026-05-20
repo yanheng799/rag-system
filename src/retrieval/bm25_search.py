@@ -22,6 +22,7 @@ class BM25Searcher:
         question: str,
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[RetrievedChunk]:
         """
         BM25 检索流程：
@@ -33,6 +34,7 @@ class BM25Searcher:
             query_text=question,
             top_k=top_k,
             filters=filters,
+            org_id=org_id,
         )
         logger.info("BM25 检索完成: %d 条结果", len(results))
 

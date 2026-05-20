@@ -28,6 +28,7 @@ class VectorSearcher:
         question: str,
         top_k: int = 50,
         filters: dict | None = None,
+        org_id: str | None = None,
     ) -> list[RetrievedChunk]:
         """
         向量检索流程：
@@ -42,6 +43,7 @@ class VectorSearcher:
             embedding=embedding,
             top_k=top_k,
             filters=filters,
+            org_id=org_id,
         )
         logger.info("向量检索完成: %d 条结果", len(results))
 
