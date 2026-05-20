@@ -16,19 +16,21 @@ from src.api.schemas.datasets import (
     DatasetUpdateRequest,
 )
 
-router = APIRouter(prefix="/api/v1/datasets", tags=["数据集管理"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/datasets", tags=["数据集管理"])
 
 
 @router.post("", response_model=DatasetResponse, status_code=201, summary="创建数据集")
-async def create_dataset(request: Request, body: DatasetCreateRequest):
+async def create_dataset(request: Request, body: DatasetCreateRequest, user: dict = Depends(get_current_user)):
     pg_store = request.app.state.pg_store
     dataset_id = f"ds_{uuid.uuid4().hex[:12]}"
+    org_id = user.get("org_id", "") or ""
 
     try:
         record = await pg_store.create_dataset(
             dataset_id=dataset_id,
             name=body.name,
             description=body.description,
+            org_id=org_id,
         )
     except Exception:
         raise HTTPException(status_code=409, detail="数据集名称已存在") from None
@@ -49,9 +51,11 @@ async def list_datasets(
     request: Request,
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
 ):
     pg_store = request.app.state.pg_store
-    records, total = await pg_store.list_datasets(page=page, size=size)
+    org_id = user.get("org_id", "") or ""
+    records, total = await pg_store.list_datasets(page=page, size=size, org_id=org_id)
 
     items = []
     for r in records:
@@ -70,10 +74,13 @@ async def list_datasets(
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse, summary="数据集详情")
-async def get_dataset(request: Request, dataset_id: str):
+async def get_dataset(request: Request, dataset_id: str, user: dict = Depends(get_current_user)):
     pg_store = request.app.state.pg_store
+    org_id = user.get("org_id", "") or ""
     record = await pg_store.get_dataset(dataset_id)
     if record is None:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if record.org_id and record.org_id != org_id:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     doc_count = await pg_store.count_docs_by_dataset(dataset_id)
@@ -88,10 +95,13 @@ async def get_dataset(request: Request, dataset_id: str):
 
 
 @router.patch("/{dataset_id}", response_model=DatasetResponse, summary="更新数据集")
-async def update_dataset(request: Request, dataset_id: str, body: DatasetUpdateRequest):
+async def update_dataset(request: Request, dataset_id: str, body: DatasetUpdateRequest, user: dict = Depends(get_current_user)):
     pg_store = request.app.state.pg_store
+    org_id = user.get("org_id", "") or ""
     existing = await pg_store.get_dataset(dataset_id)
     if existing is None:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if existing.org_id and existing.org_id != org_id:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     try:
@@ -119,13 +129,17 @@ async def delete_dataset(
     request: Request,
     dataset_id: str,
     force: bool = Query(default=False),
+    user: dict = Depends(get_current_user),
 ):
     pg_store = request.app.state.pg_store
     milvus_store = request.app.state.milvus_store
     oss_store = request.app.state.oss_store
+    org_id = user.get("org_id", "") or ""
 
     existing = await pg_store.get_dataset(dataset_id)
     if existing is None:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if existing.org_id and existing.org_id != org_id:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     doc_count = await pg_store.count_docs_by_dataset(dataset_id)

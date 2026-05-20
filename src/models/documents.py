@@ -27,6 +27,7 @@ class DocumentRecord:
     raw_file_url: str
     content_hash: str | None = None
     dataset_id: str | None = None
+    org_id: str | None = None
     file_size: int | None = None
     file_type: str | None = None  # pdf | docx | xlsx
     status: str = "pending"  # pending | processing | done | failed
@@ -46,6 +47,7 @@ class DatasetRecord:
     dataset_id: str
     name: str
     description: str | None = None
+    org_id: str | None = None
     created_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -123,5 +125,6 @@ class QueryLogRecord:
     total_ms: int | None = None
     token_count: int | None = None
     cache_hit: bool = False
+    org_id: str | None = None
     created_by: str | None = None
     created_at: datetime | None = None

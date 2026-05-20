@@ -15,11 +15,11 @@ from src.api.schemas.retrieve import (
     RetrieveResponse,
 )
 
-router = APIRouter(prefix="/api/v1", tags=["检索"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1", tags=["检索"])
 
 
 @router.post("/retrieve", response_model=RetrieveResponse, summary="检索接口")
-async def debug_retrieve(request: Request, body: RetrieveRequest):
+async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = Depends(get_current_user)):
     """
     检索接口：绕过 LLM，直接返回检索分块结果。
     支持 vector / bm25 / hybrid 三种检索模式。
@@ -33,6 +33,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
         raise HTTPException(status_code=503, detail=f"{body.search_mode} 检索服务未就绪")
 
     start_time = time.time()
+    org_id = user.get("org_id", "") or ""
 
     # 解析过滤参数
     filters = None
@@ -44,6 +45,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest):
             body.dataset_ids,
             body.doc_ids,
             body.doc_names,
+            org_id=org_id,
         )
 
     chunks = searcher.search(
