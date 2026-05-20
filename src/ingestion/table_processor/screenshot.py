@@ -35,6 +35,7 @@ class TableScreenshot:
         doc_id: str,
         table_index: int,
         dpi: int = DEFAULT_DPI,
+        org_id: str = "",
     ) -> str:
         """
         截取 PDF 中的表格区域并上传到 OSS。
@@ -72,6 +73,7 @@ class TableScreenshot:
             page=page_num,
             table_index=table_index,
             image=image_bytes,
+            org_id=org_id,
         )
         logger.info("PDF 表格截图完成: %s_p%d_t%d", doc_id, page_num, table_index)
         return oss_path
@@ -82,6 +84,7 @@ class TableScreenshot:
         doc_id: str,
         page: int,
         table_index: int,
+        org_id: str = "",
     ) -> str | None:
         """
         截取 Word 文档中的表格。
@@ -115,6 +118,7 @@ class TableScreenshot:
                 page=page_num,
                 table_index=table_index,
                 image=image_bytes,
+                org_id=org_id,
             )
             logger.info("Word 表格截图完成: %s_p%d_t%d", doc_id, page_num, table_index)
             return oss_path

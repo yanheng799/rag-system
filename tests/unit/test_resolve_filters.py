@@ -16,13 +16,13 @@ class FakePgStore:
         self._dataset_to_docs = dataset_to_docs or {}
         self._name_to_docs = name_to_docs or {}
 
-    async def get_doc_ids_by_dataset_ids(self, dataset_ids):
+    async def get_doc_ids_by_dataset_ids(self, dataset_ids, org_id=None):
         result = []
         for ds_id in dataset_ids:
             result.extend(self._dataset_to_docs.get(ds_id, []))
         return result
 
-    async def get_doc_ids_by_filenames(self, filenames):
+    async def get_doc_ids_by_filenames(self, filenames, org_id=None):
         result = []
         for name in filenames:
             result.extend(self._name_to_docs.get(name, []))

@@ -26,9 +26,19 @@ class _FakeOssStore:
         return self._files[path]
 
 
-def _make_app(oss_store=None) -> tuple[FastAPI, TestClient]:
+class _FakePgStore:
+    """轻量 Fake：模拟 PG 文档查询"""
+    def __init__(self, docs: dict[str, object] | None = None):
+        self._docs = docs or {}
+
+    async def get_document(self, doc_id: str):
+        return self._docs.get(doc_id)
+
+
+def _make_app(oss_store=None, pg_store=None) -> tuple[FastAPI, TestClient]:
     app = FastAPI()
     app.state.oss_store = oss_store or _FakeOssStore()
+    app.state.pg_store = pg_store or _FakePgStore()
     app.include_router(router)
     return app, TestClient(app)
 

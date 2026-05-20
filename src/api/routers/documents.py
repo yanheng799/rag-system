@@ -98,7 +98,7 @@ async def upload_documents(
         # 新文件
         doc_id = generate_doc_id()
         raw_file_url = f"raw-docs/{doc_id}/{filename}"
-        oss_store.upload_raw_doc(doc_id, filename, file_data)
+        oss_store.upload_raw_doc(doc_id, filename, file_data, org_id=org_id)
 
         from src.models.documents import DocumentRecord
 

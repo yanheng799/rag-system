@@ -26,15 +26,16 @@ async def get_image(request: Request, path: str, user: dict = Depends(get_curren
     oss_store = request.app.state.oss_store
     org_id = user.get("org_id", "") or ""
 
-    # 校验图片所属文档的 org_id
-    import re
-    match = re.match(r"(?:raw-docs|table-images)/([^/]+)/", path)
-    if match:
-        doc_id = match.group(1)
-        pg_store = request.app.state.pg_store
-        doc = await pg_store.get_document(doc_id)
-        if doc is None or (doc.org_id and doc.org_id != org_id):
-            raise HTTPException(status_code=404, detail=f"图片不存在: {path}")
+    # 校验图片所属文档的 org_id（仅在鉴权开启时）
+    if org_id:
+        import re
+        match = re.match(r"(?:[^/]+/)?(?:raw-docs|table-images|doc-images)/([^/]+)/", path)
+        if match:
+            doc_id = match.group(1)
+            pg_store = request.app.state.pg_store
+            doc = await pg_store.get_document(doc_id)
+            if doc is None or (doc.org_id and doc.org_id != org_id):
+                raise HTTPException(status_code=404, detail=f"图片不存在: {path}")
 
     try:
         data = oss_store.download(path)

@@ -186,15 +186,15 @@ class ObjectStorePort(ABC):
         """确保 Bucket 存在"""
 
     @abstractmethod
-    def upload_raw_doc(self, doc_id: str, filename: str, data: bytes) -> str:
+    def upload_raw_doc(self, doc_id: str, filename: str, data: bytes, org_id: str = "") -> str:
         """上传原始文档，返回内部路径"""
 
     @abstractmethod
-    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes) -> str:
+    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes, org_id: str = "") -> str:
         """上传表格截图，返回内部路径"""
 
     @abstractmethod
-    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png") -> str:
+    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png", org_id: str = "") -> str:
         """上传文档图片，返回内部路径"""
 
     @abstractmethod
