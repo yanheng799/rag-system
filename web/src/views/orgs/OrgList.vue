@@ -5,21 +5,14 @@
       <a-button type="primary" @click="showCreate = true">创建组织</a-button>
     </div>
 
-    <a-spin :spinning="loading">
-      <div v-if="myOrgs.length" class="org-grid">
-        <a-card v-for="org in myOrgs" :key="org.org_id" hoverable class="org-card" :class="{ active: org.org_id === authStore.currentOrgId }" @click="handleSwitch(org.org_id)">
-          <template #title>
-            <span>{{ org.name }}</span>
-            <a-tag v-if="org.org_id === authStore.currentOrgId" color="blue" style="margin-left:8px">当前</a-tag>
-          </template>
-          <template #extra><a-tag :color="org.role === 'admin' ? 'purple' : 'default'">{{ org.role === 'admin' ? '管理员' : '成员' }}</a-tag></template>
-          <p class="org-desc">{{ org.description || '暂无描述' }}</p>
-          <template #actions><router-link :to="`/orgs/${org.org_id}`">管理</router-link></template>
-        </a-card>
-      </div>
-      <a-empty v-else description="暂未加入任何组织" />
-    </a-spin>
-
+    <!-- 邀请优先展示 -->
+    <a-alert
+      v-if="invitations.length"
+      type="info"
+      show-icon
+      :message="`您有 ${invitations.length} 个待处理的组织邀请`"
+      style="margin-bottom: 20px"
+    />
     <div v-if="invitations.length" class="inv-section">
       <h3>待处理的邀请</h3>
       <a-list :dataSource="invitations">
@@ -42,6 +35,21 @@
         </template>
       </a-list>
     </div>
+
+    <a-spin :spinning="loading">
+      <div v-if="myOrgs.length" class="org-grid">
+        <a-card v-for="org in myOrgs" :key="org.org_id" hoverable class="org-card" :class="{ active: org.org_id === authStore.currentOrgId }" @click="handleSwitch(org.org_id)">
+          <template #title>
+            <span>{{ org.name }}</span>
+            <a-tag v-if="org.org_id === authStore.currentOrgId" color="blue" style="margin-left:8px">当前</a-tag>
+          </template>
+          <template #extra><a-tag :color="org.role === 'admin' ? 'purple' : 'default'">{{ org.role === 'admin' ? '管理员' : '成员' }}</a-tag></template>
+          <p class="org-desc">{{ org.description || '暂无描述' }}</p>
+          <template #actions><router-link :to="`/orgs/${org.org_id}`">管理</router-link></template>
+        </a-card>
+      </div>
+      <a-empty v-else description="暂未加入任何组织" />
+    </a-spin>
 
     <a-modal v-model:open="showCreate" title="创建组织" @ok="handleCreate" :confirmLoading="creating">
       <a-form layout="vertical">
@@ -72,8 +80,11 @@ async function load() {
   loading.value = true
   try {
     await authStore.fetchUser()
+  } catch { /* fetchUser 失败不阻塞邀请加载 */ }
+  try {
     invitations.value = await getMyInvitations()
-  } finally { loading.value = false }
+  } catch { /* ignore */ }
+  loading.value = false
 }
 
 async function handleCreate() {
