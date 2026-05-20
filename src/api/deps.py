@@ -9,7 +9,7 @@ from src.config.settings import settings
 async def get_current_user(request: Request) -> dict:
     """从 Authorization 头解析 JWT，返回 user_id 和 org_id"""
     if not settings.auth_enabled:
-        return {"user_id": "", "org_id": ""}
+        return {"user_id": "", "org_id": None}
 
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):

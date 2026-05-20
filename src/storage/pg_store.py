@@ -142,7 +142,7 @@ class PgStore(DocumentStorePort):
             base_query = select(DocumentORM)
             if dataset_id is not None:
                 base_query = base_query.where(DocumentORM.dataset_id == dataset_id)
-            if org_id is not None:
+            if org_id:
                 base_query = base_query.where(DocumentORM.org_id == org_id)
 
             count_result = await session.execute(select(func.count()).select_from(base_query.subquery()))
@@ -377,7 +377,7 @@ class PgStore(DocumentStorePort):
     async def list_datasets(self, page: int = 1, size: int = 20, org_id: str | None = None) -> tuple[list[DatasetRecord], int]:
         async with self._session_factory() as session:
             base_query = select(DatasetORM)
-            if org_id is not None:
+            if org_id:
                 base_query = base_query.where(DatasetORM.org_id == org_id)
             count_result = await session.execute(select(func.count()).select_from(base_query.subquery()))
             total = count_result.scalar() or 0
@@ -427,7 +427,7 @@ class PgStore(DocumentStorePort):
     async def count_docs_by_dataset(self, dataset_id: str, org_id: str | None = None) -> int:
         async with self._session_factory() as session:
             stmt = select(func.count()).select_from(DocumentORM).where(DocumentORM.dataset_id == dataset_id)
-            if org_id is not None:
+            if org_id:
                 stmt = stmt.where(DocumentORM.org_id == org_id)
             result = await session.execute(stmt)
             return result.scalar() or 0
@@ -435,7 +435,7 @@ class PgStore(DocumentStorePort):
     async def get_doc_ids_by_dataset_ids(self, dataset_ids: list[str], org_id: str | None = None) -> list[str]:
         async with self._session_factory() as session:
             stmt = select(DocumentORM.doc_id).where(DocumentORM.dataset_id.in_(dataset_ids))
-            if org_id is not None:
+            if org_id:
                 stmt = stmt.where(DocumentORM.org_id == org_id)
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
@@ -444,7 +444,7 @@ class PgStore(DocumentStorePort):
         async with self._session_factory() as session:
             conditions = [DocumentORM.filename.ilike(f"%{name}%") for name in filenames]
             stmt = select(DocumentORM.doc_id).where(or_(*conditions))
-            if org_id is not None:
+            if org_id:
                 stmt = stmt.where(DocumentORM.org_id == org_id)
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
