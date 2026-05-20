@@ -40,3 +40,7 @@ logs/
 # web
 web/dist
 web/node_modules
+
+# 本地工作目录
+team-spec/
+tmp/
