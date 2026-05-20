@@ -37,6 +37,13 @@ class OSSStore(ObjectStorePort):
             secure=self._secure,
         )
 
+    @staticmethod
+    def _object_name(org_id: str, path: str) -> str:
+        """构建对象路径，org_id 非空时添加前缀"""
+        if org_id:
+            return f"{org_id}/{path}"
+        return path
+
     def ensure_bucket(self) -> None:
         """确保 Bucket 存在"""
         if not self._client.bucket_exists(self._bucket):
@@ -45,9 +52,10 @@ class OSSStore(ObjectStorePort):
         else:
             logger.info("MinIO Bucket '%s' 已存在", self._bucket)
 
-    def upload_raw_doc(self, doc_id: str, filename: str, data: bytes) -> str:
-        """上传原始文档至 /raw-docs/{doc_id}/{filename}"""
-        object_name = f"raw-docs/{doc_id}/{filename}"
+    def upload_raw_doc(self, doc_id: str, filename: str, data: bytes, org_id: str = "") -> str:
+        """上传原始文档至 {org_id}/raw-docs/{doc_id}/{filename}"""
+        path = f"raw-docs/{doc_id}/{filename}"
+        object_name = self._object_name(org_id, path)
         self._client.put_object(
             self._bucket,
             object_name,
@@ -57,9 +65,10 @@ class OSSStore(ObjectStorePort):
         logger.info("原始文档已上传: %s", object_name)
         return object_name
 
-    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes) -> str:
-        """上传表格截图至 /table-images/{doc_id}_p{page}_t{table_index}.png"""
-        object_name = f"table-images/{doc_id}_p{page}_t{table_index}.png"
+    def upload_table_image(self, doc_id: str, page: int, table_index: int, image: bytes, org_id: str = "") -> str:
+        """上传表格截图至 {org_id}/table-images/{doc_id}_p{page}_t{table_index}.png"""
+        path = f"table-images/{doc_id}_p{page}_t{table_index}.png"
+        object_name = self._object_name(org_id, path)
         self._client.put_object(
             self._bucket,
             object_name,
@@ -70,9 +79,10 @@ class OSSStore(ObjectStorePort):
         logger.info("表格截图已上传: %s", object_name)
         return object_name
 
-    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png") -> str:
-        """上传文档图片至 /doc-images/{doc_id}_p{page}_img{image_index}.{ext}"""
-        object_name = f"doc-images/{doc_id}_p{page}_img{image_index}.{ext}"
+    def upload_doc_image(self, doc_id: str, page: int, image_index: int, image: bytes, ext: str = "png", org_id: str = "") -> str:
+        """上传文档图片至 {org_id}/doc-images/{doc_id}_p{page}_img{image_index}.{ext}"""
+        path = f"doc-images/{doc_id}_p{page}_img{image_index}.{ext}"
+        object_name = self._object_name(org_id, path)
         content_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
         self._client.put_object(
             self._bucket,

@@ -33,6 +33,7 @@ class ChunkBuilder:
         page: int,
         chunk_index: int,
         pdf_path: str | None = None,
+        org_id: str = "",
     ) -> MixedChunk:
         """
         将段落组组装为 MixedChunk。
@@ -57,7 +58,7 @@ class ChunkBuilder:
                 # 尝试截图（需要 PDF 文件路径和截图服务）
                 if self._screenshot and pdf_path and elem.bbox != (0, 0, 0, 0):
                     try:
-                        img_url = self._screenshot.capture_pdf_table(
+                        img_url = self._screenshot.capture_pdf_table(org_id=org_id,
                             pdf_path=pdf_path,
                             page_num=elem.page,
                             bbox=elem.bbox,
@@ -72,7 +73,7 @@ class ChunkBuilder:
                     if elem.raw and isinstance(elem.raw, dict):
                         for mp in elem.raw.get("_merged_pages", []):
                             try:
-                                mp_url = self._screenshot.capture_pdf_table(
+                                mp_url = self._screenshot.capture_pdf_table(org_id=org_id,
                                     pdf_path=pdf_path,
                                     page_num=mp["page"],
                                     bbox=tuple(mp["bbox"]),

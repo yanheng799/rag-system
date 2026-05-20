@@ -73,7 +73,7 @@ class IngestionPipeline:
             if not skip_oss_upload:
                 with open(file_path, "rb") as f:
                     file_data = f.read()
-                self._oss.upload_raw_doc(doc_id, filename, file_data)
+                self._oss.upload_raw_doc(doc_id, filename, file_data, org_id=org_id or "")
 
             # 3. 解析文档
             parser = ParserRegistry.get(file_type)
@@ -154,6 +154,7 @@ class IngestionPipeline:
                             image_index=img_counter,
                             image=elem.raw["image_bytes"],
                             ext=ext,
+                            org_id=org_id or "",
                         )
                         elem.raw["oss_path"] = oss_path
                         img_counter += 1
@@ -167,6 +168,7 @@ class IngestionPipeline:
                     page=page,
                     chunk_index=chunk_index,
                     pdf_path=pdf_path,
+                    org_id=org_id or "",
                 )
                 chunk.metadata.group_id = group_id
                 chunks.append(chunk)
