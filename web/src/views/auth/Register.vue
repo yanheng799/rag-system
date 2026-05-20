@@ -21,7 +21,7 @@
         <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }, { min: 8, message: '最少 8 字符' }]">
           <a-input-password v-model:value="form.password" placeholder="密码" size="large" />
         </a-form-item>
-        <a-form-item name="pw2" :rules="[{ required: true, message: '请确认密码' }, { validator: validatePw2 }]">
+        <a-form-item name="password_confirm" :rules="[{ required: true, message: '请确认密码' }, { validator: validatePw2 }]">
           <a-input-password v-model:value="form.password_confirm" placeholder="确认密码" size="large" />
         </a-form-item>
         <a-form-item>
