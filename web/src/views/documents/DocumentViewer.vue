@@ -183,6 +183,11 @@ const excelSheets = ref<string[]>([])
 const excelHtml = ref<string[]>([])
 const activeSheet = ref(0)
 
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('access_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 const fileTypeLabel = computed(() => {
   const map: Record<string, string> = { docx: 'Word 文档', md: 'Markdown', txt: '纯文本', csv: 'CSV', xlsx: 'Excel' }
   return map[docInfo.value?.file_type || ''] || docInfo.value?.file_type?.toUpperCase() || ''
@@ -290,7 +295,8 @@ async function fetchData() {
 
 async function loadPdf() {
   const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
-  const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
+  const resp = await fetch(url, { headers: authHeaders() })
+  const data = new Uint8Array(await resp.arrayBuffer())
   pdfDoc = await pdfjsLib.getDocument({ data }).promise
   numPages.value = pdfDoc.numPages
   await nextTick()
@@ -299,19 +305,22 @@ async function loadPdf() {
 
 async function loadWord() {
   const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
-  const data = await (await fetch(url)).arrayBuffer()
+  const resp = await fetch(url, { headers: authHeaders() })
+  const data = await resp.arrayBuffer()
   const result = await mammoth.convertToHtml({ arrayBuffer: data })
   wordHtml.value = result.value
 }
 
 async function loadText() {
   const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
-  textContent.value = await (await fetch(url)).text()
+  const resp = await fetch(url, { headers: authHeaders() })
+  textContent.value = await resp.text()
 }
 
 async function loadExcel() {
   const url = `/api/v1/images/${docInfo.value!.raw_file_url}`
-  const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
+  const resp = await fetch(url, { headers: authHeaders() })
+  const data = new Uint8Array(await resp.arrayBuffer())
   const wb = XLSX.read(data, { type: 'array' })
   excelSheets.value = wb.SheetNames
   excelHtml.value = wb.SheetNames.map((name) => {
