@@ -475,6 +475,23 @@ CREATE TABLE documents (
 
 CREATE INDEX idx_documents_dataset_id ON documents(dataset_id);
 
+-- API Key 表（外部系统集成凭证）
+CREATE TABLE api_keys (
+    key_id        VARCHAR(36)   PRIMARY KEY,               -- "ak_{uuid_hex[:12]}"
+    user_id       VARCHAR(36)   NOT NULL REFERENCES rag_users(user_id) ON DELETE CASCADE,
+    org_id        VARCHAR(36)   NOT NULL REFERENCES rag_organizations(org_id) ON DELETE CASCADE,
+    key_hash      VARCHAR(64)   NOT NULL,                  -- SHA-256(明文 key)
+    key_prefix    VARCHAR(12)   NOT NULL,                  -- 前 8 字符，列表展示用 "rag-ak-xx…"
+    name          VARCHAR(128),                             -- Key 名称（"测试环境"/"外部系统A"）
+    last_used_at  TIMESTAMP,                               -- 最后使用时间
+    expires_at    TIMESTAMP,                               -- 可选过期时间
+    revoked_at    TIMESTAMP,                               -- 撤销时间（非空表示已撤销）
+    created_at    TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX idx_api_keys_key_hash ON api_keys(key_hash);
+
 -- 分块记录表（摄入后的分块详情）
 CREATE TABLE chunks (
     chunk_id      VARCHAR(128)  PRIMARY KEY,       -- 格式：{doc_id}_p{page}_c{index}
@@ -650,6 +667,9 @@ class RAGOrchestrator:
 | POST | `/api/v1/chunks/link` | 关联多个分块到同一 group_id |
 | POST | `/api/v1/chunks/unlink` | 取消分块的 group_id 关联 |
 | GET | `/api/v1/images/{path}` | 图片代理（根据内部 OSS 路径返回图片/文档，无需签名，也用于前端 PDF 文档查看器加载原始文档） |
+| POST | `/api/v1/api-keys` | 创建 API Key（返回明文，仅此一次） |
+| GET | `/api/v1/api-keys` | 列出当前用户的 API Key |
+| DELETE | `/api/v1/api-keys/{key_id}` | 撤销 API Key |
 
 ---
 
@@ -798,9 +818,9 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 | 向量数据库 | Milvus (pymilvus) | HNSW 索引，COSINE 度量，高性能 |
 | 文档存储 | PostgreSQL (SQLAlchemy 2.0 async) | 存储原文、分块内容、元数据 |
 | 缓存 | Redis | Phase 4 引入：查询缓存 + Embedding 缓存 |
-| Embedding 模型 | DashScope text-embedding-v3 | 1024 维云端 API，零部署 |
+| Embedding 模型 | 本地 bge-large-zh-v1.5 / DashScope text-embedding-v3（可配置切换） | 1024 维，通过 `.env` 切换本地/云端 |
 | 任务队列 | Phase 1 同步；Phase 4 Celery + Redis | 异步摄入、失败重试、死信队列 |
-| API 鉴权 | JWT / API Key | Phase 5 引入：统一鉴权中间件 |
+| API 鉴权 | JWT / API Key | JWT（前端用户登录）+ API Key（外部系统集成），统一通过 `get_current_user` 鉴权中间件 |
 | 重排序 | BGE-Reranker-v2-m3 | Phase 2 引入：BAAI 出品，中文优秀，完全本地化 |
 | 大语言模型 | Qwen via DashScope | 中文能力强，云端 API 调用，零部署 |
 | 数据库迁移 | Alembic | 版本化管理 Schema 变更 |
@@ -867,7 +887,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 - Qwen-VL 视觉模型推迟到 Phase 3，用于复杂合并单元格表格
 
 **DashScope API (Embedding + LLM)**
-- Embedding 使用 text-embedding-v3（1024 维云端 API，支持自定义维度）
+- Embedding 支持本地模型和云端模型切换，通过 `.env` 配置 `EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL` 等参数；本地模型（如 bge-large-zh-v1.5）通过 OpenAI 兼容接口接入，检索查询自动添加模型推荐的前缀指令（如 bge 系列的 `"为这个句子生成表示以用于检索相关文章："`），入库 embedding 不加前缀
 - LLM 使用 Qwen（通过 DashScope OpenAI 兼容接口）
 - 零部署成本，Phase 1 快速验证；vLLM 本地部署推迟到有明确性能需求时
 
@@ -907,7 +927,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 |--------|---------|
 | 可观测性 | 每个节点记录耗时、召回数量、模型调用次数 |
 | 缓存 | 查询结果缓存 + Embedding 缓存，降低成本和延迟 |
-| 权限控制 | API 层 JWT / API Key 鉴权；文档级 ACL 表记录用户与文档的访问关系，检索时自动注入 `doc_id in [...]` 过滤条件；image_url 通过后端代理端点 `/api/v1/images/{path}` 访问，后端从 MinIO 读取并返回图片，无需签名，无过期问题 |
+| 权限控制 | API 层 JWT / API Key 双重鉴权；API Key 通过 `Authorization: Bearer rag-ak-xxx` 传递，按 `rag-` 前缀区分 JWT（`eyJ` 开头）；Key 绑定用户+组织，继承用户权限；明文仅在创建时返回，数据库存 SHA-256 hash；文档级 ACL 表记录用户与文档的访问关系，检索时自动注入 `doc_id in [...]` 过滤条件；image_url 通过后端代理端点 `/api/v1/images/{path}` 访问，后端从 MinIO 读取并返回图片，无需签名，无过期问题 |
 | 配置中心 | 分块大小、Top-K、模型选择、表格处理策略等参数运行时可调 |
 | 错误降级 | 检索失败 → 返回兜底回答；LLM 超时 → 重试或切换备用模型 |
 
@@ -1009,6 +1029,7 @@ PDF / Word / Excel / TXT / Markdown / CSV 文档上传
 - **升级 LLM** → 修改 `LLMClient` 配置项，切换模型端点；`FallbackLLMClient` 自动降级到备用模型
 - **优化检索策略** → 替换 Pipeline 中的单个节点，其余节点不受影响；RRF 权重通过配置中心运行时调整
 - **增加新接口** → 在用户交互层新增 Handler，通过鉴权中间件统一保护
+- **新增 API Key** → 用户通过管理接口创建 API Key，绑定组织；第三方系统使用 `Authorization: Bearer rag-ak-xxx` 调用任意 API，与 JWT 共享同一鉴权链路
 - **切换对象存储** → 修改 `ObjectStoragePort` 实现，图片/文档代理端点统一由 `/api/v1/images/{path}` 路由转发
 - **文档查看器扩展** → 当前支持 PDF iframe 预览，可扩展为 PDF.js Canvas 渲染以支持更精确的页码追踪和高亮标注
 - **扩展元数据字段** → 在 `ChunkMetadata` 中新增字段，同步更新 Milvus Schema 和响应结构

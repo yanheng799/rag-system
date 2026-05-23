@@ -17,6 +17,7 @@ from src.models.documents import (
     UserRecord,
 )
 from src.storage.pg_models import (
+    ApiKeyORM,
     ChunkORM,
     DatasetORM,
     DocumentORM,
@@ -791,3 +792,72 @@ class PgStore(DocumentStorePort):
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount > 0
+
+    # ---- API Key ----
+
+    async def create_api_key(
+        self,
+        key_id: str,
+        user_id: str,
+        org_id: str,
+        key_hash: str,
+        key_prefix: str,
+        name: str | None,
+        expires_at=None,
+    ) -> None:
+        async with self._session_factory() as session:
+            session.add(
+                ApiKeyORM(
+                    key_id=key_id,
+                    user_id=user_id,
+                    org_id=org_id,
+                    key_hash=key_hash,
+                    key_prefix=key_prefix,
+                    name=name,
+                    expires_at=expires_at,
+                )
+            )
+            await session.commit()
+
+    async def list_api_keys(self, user_id: str) -> list[ApiKeyORM]:
+        async with self._session_factory() as session:
+            stmt = (
+                select(ApiKeyORM)
+                .where(ApiKeyORM.user_id == user_id, ApiKeyORM.revoked_at.is_(None))
+                .order_by(ApiKeyORM.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def revoke_api_key(self, key_id: str, user_id: str) -> bool:
+        from datetime import datetime as dt, timezone
+
+        async with self._session_factory() as session:
+            stmt = (
+                update(ApiKeyORM)
+                .where(ApiKeyORM.key_id == key_id, ApiKeyORM.user_id == user_id, ApiKeyORM.revoked_at.is_(None))
+                .values(revoked_at=dt.now(timezone.utc).replace(tzinfo=None))
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+            return result.rowcount > 0
+
+    async def get_api_key_by_hash(self, key_hash: str) -> ApiKeyORM | None:
+        from datetime import datetime as dt, timezone
+
+        async with self._session_factory() as session:
+            stmt = select(ApiKeyORM).where(
+                ApiKeyORM.key_hash == key_hash,
+                ApiKeyORM.revoked_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            if row.expires_at and row.expires_at < dt.now(timezone.utc).replace(tzinfo=None):
+                return None
+            await session.execute(
+                update(ApiKeyORM).where(ApiKeyORM.key_id == row.key_id).values(last_used_at=dt.now(timezone.utc).replace(tzinfo=None))
+            )
+            await session.commit()
+            return row

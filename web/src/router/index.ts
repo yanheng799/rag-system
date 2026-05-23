@@ -21,6 +21,7 @@ const router = createRouter({
         { path: 'documents/:docId/chunks', component: () => import('@/views/chunks/ChunkList.vue') },
         { path: 'documents/:docId/viewer', component: () => import('@/views/documents/DocumentViewer.vue') },
         { path: 'chunks/:chunkId', component: () => import('@/views/chunks/ChunkDetail.vue') },
+        { path: 'settings/api-keys', component: () => import('@/views/settings/ApiKeysPage.vue') },
       ],
     },
   ],

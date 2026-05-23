@@ -24,6 +24,7 @@
           <template #overlay>
             <a-menu @click="handleMenu">
               <a-menu-item key="orgs"><TeamOutlined /> 组织管理<a-badge v-if="pendingCount" :count="pendingCount" size="small" style="margin-left:8px" /></a-menu-item>
+              <a-menu-item key="api-keys"><KeyOutlined /> API Key 管理</a-menu-item>
               <a-menu-divider />
               <a-menu-item key="logout" danger><LogoutOutlined /> 退出登录</a-menu-item>
             </a-menu>
@@ -50,7 +51,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { DatabaseOutlined, MessageOutlined, SearchOutlined, UserOutlined, DownOutlined, TeamOutlined, LogoutOutlined } from '@ant-design/icons-vue'
+import { DatabaseOutlined, MessageOutlined, SearchOutlined, UserOutlined, DownOutlined, TeamOutlined, LogoutOutlined, KeyOutlined } from '@ant-design/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { getMyInvitations } from '@/api/auth'
 
@@ -80,6 +81,7 @@ async function handleSwitchOrg(orgId: string) {
 }
 function handleMenu({ key }: { key: string }) {
   if (key === 'orgs') router.push('/orgs')
+  else if (key === 'api-keys') router.push('/settings/api-keys')
   else if (key === 'logout') { authStore.logout(); router.push('/login') }
 }
 onMounted(async () => {
