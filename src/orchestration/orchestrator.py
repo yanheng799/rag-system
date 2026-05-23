@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 from src.models.chunks import RetrievedChunk
@@ -19,9 +21,14 @@ from src.storage.ports import DocumentStorePort
 logger = logging.getLogger(__name__)
 
 
+def _sse_event(event: str, data: dict) -> str:
+    """格式化 SSE 事件"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @dataclass
 class QueryResponse:
-    """查询响应"""
+    """查询响应（非流式场景保留）"""
 
     answer: str
     sources: list[dict]
@@ -46,7 +53,7 @@ class RAGOrchestrator:
         self._doc_store = doc_store
         self._query_rewriter = query_rewriter
 
-    async def query(
+    async def query_stream(
         self,
         question: str,
         top_k: int = 5,
@@ -54,26 +61,27 @@ class RAGOrchestrator:
         filters: dict | None = None,
         org_id: str | None = None,
         show_rewritten: bool = False,
-    ) -> QueryResponse:
+    ) -> AsyncGenerator[str, None]:
         """
-        完整问答流程：
-        1. 查询改写（可选）
-        2. 多路检索 + 合并去重
-        3. 构建 Prompt
-        4. 调用 LLM
-        5. 后处理
-        6. 写入查询日志
+        SSE 流式问答：
+        1. yield status: rewriting
+        2. yield status: retrieving
+        3. yield token (逐个)
+        4. yield result (sources + total_ms + rewritten_queries)
+        5. 写入查询日志
         """
         start_time = time.time()
         logger.info("查询开始: question='%s', top_k=%d, filters=%s, org_id=%s", question[:80], top_k, filters, org_id)
 
         # 1. 查询改写
+        yield _sse_event("status", {"phase": "rewriting"})
         if self._query_rewriter:
             queries = self._query_rewriter.rewrite(question)
         else:
             queries = [question]
 
         # 2. 多路检索 + 合并去重
+        yield _sse_event("status", {"phase": "retrieving"})
         retrieval_start = time.time()
         chunks = self._multi_query_search(queries, top_k=top_k, filters=filters, org_id=org_id)
         retrieval_ms = int((time.time() - retrieval_start) * 1000)
@@ -89,20 +97,24 @@ class RAGOrchestrator:
         # 3. 构建 Prompt
         messages = self._prompt_builder.build(question, chunks, doc_filename_map)
 
-        # 4. 调用 LLM
+        # 4. 流式调用 LLM，逐 token 推送
         llm_start = time.time()
-        result = self._llm.complete(messages)
-        if isinstance(result, str):
-            answer = result
-        else:
-            # 流式模式：收集所有 token 拼接为完整回答
-            answer = "".join(result)
+        answer_parts: list[str] = []
+        for token in self._llm.complete(messages, stream=True):
+            answer_parts.append(token)
+            yield _sse_event("token", {"content": token})
+        answer = "".join(answer_parts)
         llm_ms = int((time.time() - llm_start) * 1000)
 
-        # 5. 后处理
+        # 5. 推送结果元数据
         sources = self._build_response_sources(chunks, doc_filename_map)
-
         total_ms = int((time.time() - start_time) * 1000)
+
+        yield _sse_event("result", {
+            "sources": sources,
+            "total_ms": total_ms,
+            "rewritten_queries": queries if show_rewritten and len(queries) > 1 else None,
+        })
 
         # 6. 写入查询日志
         log = QueryLogRecord(
@@ -126,56 +138,6 @@ class RAGOrchestrator:
             total_ms,
             len(chunks),
         )
-
-        return QueryResponse(
-            answer=answer,
-            sources=sources,
-            total_ms=total_ms,
-            rewritten_queries=queries if show_rewritten and len(queries) > 1 else None,
-        )
-
-    async def query_stream(
-        self,
-        question: str,
-        top_k: int = 5,
-        user_id: str | None = None,
-        filters: dict | None = None,
-        org_id: str | None = None,
-    ):
-        """
-        流式问答：
-        1. 查询改写（可选）
-        2. 多路检索
-        3. 流式调用 LLM
-        4. 最后 yield 来源信息
-        """
-        # 改写
-        if self._query_rewriter:
-            queries = self._query_rewriter.rewrite(question)
-        else:
-            queries = [question]
-
-        # 多路检索
-        chunks = self._multi_query_search(queries, top_k=top_k, filters=filters, org_id=org_id)
-
-        # 批量查询文档的真实 filename
-        unique_doc_ids = list({c.metadata.doc_id for c in chunks})
-        doc_filename_map: dict[str, str] = {}
-        for did in unique_doc_ids:
-            doc = await self._doc_store.get_document(did)
-            if doc:
-                doc_filename_map[did] = doc.filename
-
-        messages = self._prompt_builder.build(question, chunks, doc_filename_map)
-
-        # 流式 LLM
-        for token in self._llm.complete(messages, stream=True):
-            yield {"type": "token", "content": token}
-
-        # 来源
-        sources = self._build_response_sources(chunks, doc_filename_map)
-        yield {"type": "sources", "sources": sources}
-        yield {"type": "done"}
 
     def _multi_query_search(
         self,

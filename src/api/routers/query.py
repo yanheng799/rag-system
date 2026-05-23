@@ -1,13 +1,14 @@
-"""问答路由"""
+"""问答路由（SSE 流式响应）"""
 
 from __future__ import annotations
 
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from src.api.deps import get_current_user
-from src.api.schemas.query import QueryRequest, QueryResponse
+from src.api.schemas.query import QueryRequest
 
 router = APIRouter(prefix="/api/v1", tags=["问答"])
 
@@ -47,14 +48,19 @@ async def resolve_filters(
     return {"doc_id": sorted(result)}
 
 
-@router.post("/query", response_model=QueryResponse, summary="问答接口")
+@router.post("/query", summary="问答接口（SSE 流式）")
 async def query(request: Request, body: QueryRequest, user: dict = Depends(get_current_user)):
     """
-    问答接口：
-    1. 向量检索相关文档分块
-    2. 构建 Prompt
-    3. 调用 LLM 生成答案
-    4. 返回答案 + 来源
+    问答接口（SSE 流式响应）：
+    1. 查询改写
+    2. 向量检索相关文档分块
+    3. 流式调用 LLM 生成答案
+    4. 返回来源信息
+
+    SSE 事件类型：
+    - status: {"phase": "rewriting" | "retrieving"}
+    - token: {"content": "..."}
+    - result: {"sources": [...], "total_ms": int, "rewritten_queries": [...]}
     """
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
@@ -65,28 +71,29 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
 
     org_id = user.get("org_id", "") or ""
 
-    try:
-        filters = await resolve_filters(
-            request.app.state.pg_store,
-            body.dataset_ids,
-            body.doc_ids,
-            body.doc_names,
-            org_id=org_id,
-        )
-        result = await orchestrator.query(
-            question=body.question,
-            top_k=body.top_k,
-            filters=filters,
-            org_id=org_id,
-            show_rewritten=body.show_rewritten,
-        )
-    except Exception as e:
-        logger.exception("查询失败: question='%s'", body.question[:80])
-        raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from e
+    filters = await resolve_filters(
+        request.app.state.pg_store,
+        body.dataset_ids,
+        body.doc_ids,
+        body.doc_names,
+        org_id=org_id,
+    )
 
-    return QueryResponse(
-        answer=result.answer,
-        sources=result.sources,
-        total_ms=result.total_ms,
-        rewritten_queries=result.rewritten_queries,
+    event_stream = orchestrator.query_stream(
+        question=body.question,
+        top_k=body.top_k,
+        user_id=user.get("user_id"),
+        filters=filters,
+        org_id=org_id,
+        show_rewritten=body.show_rewritten,
+    )
+
+    return StreamingResponse(
+        event_stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

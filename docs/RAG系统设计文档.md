@@ -11,7 +11,7 @@
 - **精准检索**：在大规模文档库中准确找到与问题相关的内容
 - **可信生成**：基于检索内容生成答案，附带来源溯源，抑制幻觉
 - **易维护扩展**：分层解耦设计，任意组件可独立替换升级
-- **用户友好**：提供 REST API、流式对话、可视化管理后台三种接入方式
+- **用户友好**：提供 SSE 流式问答、REST API、可视化管理后台三种接入方式
 
 ---
 
@@ -88,7 +88,7 @@
 
 ```
 ┌─────────────────────────────────────┐
-│         用户交互层 (Interface)        │  REST API / WebSocket / 管理后台
+│         用户交互层 (Interface)        │  SSE 流式问答 / REST API / 管理后台
 ├─────────────────────────────────────┤
 │         编排调度层 (Orchestration)    │  LangChain Pipeline
 ├─────────────────────────────────────┤
@@ -622,7 +622,7 @@ class RetrievedChunk:
   - `query_rewrite_count: int = 3` — 生成的子查询数量
 - **模块位置**：`src/orchestration/query_rewriter.py`，与 `PromptBuilder` 同级
 - **LLM**：复用 `QwenClient`，改写和回答共用同一模型
-- **适用范围**：普通查询（`/query`）和流式查询（`/query/ws`）均走改写
+- **适用范围**：`/query`（SSE 流式）和 `/retrieve` 接口均走改写
 - **API 响应**：`QueryRequest` 加 `show_rewritten: bool = False` 字段，开启时 `QueryResponse` 返回 `rewritten_queries: list[str]`
 - **容错**：JSON 解析失败时 fallback 为仅使用原始问题检索
 
@@ -639,37 +639,52 @@ class RAGOrchestrator:
 
     def query(self, question):
         # 1. 查询改写（可关闭）
+        yield event("status", {"phase": "rewriting"})
         if self._query_rewriter:
-            queries = self._query_rewriter.rewrite(question)  # [原始, 子查询1, 子查询2, ...]
+            queries = self._query_rewriter.rewrite(question)
         else:
             queries = [question]
 
         # 2. 多路检索 + 合并去重
+        yield event("status", {"phase": "retrieving"})
         all_chunks = []
         for q in queries:
             chunks = self._searcher.search(q)
             all_chunks.append(chunks)
-        chunks = merge_and_dedup(all_chunks)  # chunk_id 去重，累加分数
+        chunks = merge_and_dedup(all_chunks)
 
-        # 3. 构建 Prompt（只用 full_text，image_url 不进 Prompt）
+        # 3. 构建 Prompt
         prompt = prompt_builder.build(question, chunks)
 
-        # 4. 调用 LLM（通过统一接口，可热替换）
-        answer = llm_client.complete(prompt)
+        # 4. 流式调用 LLM，逐 token 推送
+        for token in llm_client.complete(prompt, stream=True):
+            yield event("token", {"content": token})
 
-        # 5. 后处理：来源标注 + image_url 代理替换
-        return post_process(answer, chunks)
+        # 5. 推送结果元数据
+        yield event("result", {"sources": post_process(chunks), "total_ms": ...})
 ```
 
-同时负责：流式输出、超时重试、降级策略（检索失败时的兜底处理）。
+**SSE 事件协议**：
+
+`/query` 接口使用 Server-Sent Events (SSE) 返回流式响应，事件类型如下：
+
+| 事件类型 | 数据格式 | 说明 |
+|----------|---------|------|
+| `status` | `{"phase": "rewriting"}` 或 `{"phase": "retrieving"}` | 检索阶段进度提示 |
+| `token` | `{"content": "每个token"}` | LLM 逐 token 输出 |
+| `result` | `{"sources": [...], "total_ms": 123, "rewritten_queries": [...]}` | 检索来源 + 元数据 |
+
+前端使用 `fetch` + `ReadableStream` 消费 SSE，通过回调接口（`onStatus`、`onToken`、`onResult`、`onError`）封装在 `query.ts` 中。
+
+同时负责：超时重试、降级策略（检索失败时的兜底处理）。
 
 ### 3.6 第五层：用户交互层
 
 | 接口类型 | 协议 | 适用场景 |
 |----------|------|---------|
-| REST API | HTTP | 标准问答，同步返回 |
-| WebSocket | WS | 流式对话，实时输出 |
-| 管理后台 | HTTP | 文档上传、索引状态、参数调整、日志查看 |
+| SSE 流式 | HTTP POST | 问答接口，逐 token 实时输出 |
+| REST API | HTTP | 检索调试、文档管理、参数调整 |
+| 管理后台 | HTTP | 文档上传、索引状态、可视化管理 |
 
 **API 端点一览**：
 
@@ -683,8 +698,8 @@ class RAGOrchestrator:
 | POST | `/api/v1/documents` | 上传文档（`dataset_id` 选填） |
 | POST | `/api/v1/documents/ingest` | 解析文档（`chunk_options` 选填：`strategy`/`max_size`/`min_size`/`overlap`/`vertical_gap`） |
 | DELETE | `/api/v1/documents/{doc_id}` | 删除文档（级联清理向量+分块+OSS） |
-| POST | `/api/v1/query` | 问答（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
-| POST | `/api/v1/debug/retrieve` | 调试检索（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
+| POST | `/api/v1/query` | 问答（SSE 流式响应，支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
+| POST | `/api/v1/retrieve` | 检索调试（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
 | GET | `/api/v1/documents/{doc_id}/chunks` | 文档分块列表（分页） |
 | GET | `/api/v1/chunks/{chunk_id}` | 分块详情（完整 elements） |
 | DELETE | `/api/v1/chunks/{chunk_id}` | 删除单个分块 |

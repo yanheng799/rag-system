@@ -65,7 +65,10 @@
               </svg>
             </div>
             <div class="message-content">
-              <div class="message-text" v-html="renderMarkdown(msg.content)"></div>
+              <div v-if="msg.content" class="message-text" v-html="renderMarkdown(msg.content)"></div>
+              <div v-else-if="msg.role === 'assistant'" class="typing-indicator">
+                <span></span><span></span><span></span>
+              </div>
               <div v-if="msg.total_ms" class="message-meta tabular-nums">耗时 {{ msg.total_ms.toFixed(0) }}ms</div>
               <div v-if="msg.sources && msg.sources.length > 0" class="sources-section">
                 <a-collapse size="small" :bordered="false" class="sources-collapse">
@@ -98,19 +101,6 @@
             </div>
           </div>
         </template>
-        <div v-if="loading" class="message-row assistant">
-          <div class="message-avatar">
-            <svg viewBox="0 0 24 24" fill="none" class="avatar-bot-icon">
-              <rect width="24" height="24" rx="6" fill="#312e81"/>
-              <path d="M9 6h4.5c2 0 3.5 1 3.5 2.8 0 1.3-.8 2.2-1.8 2.6l2.2 6.6h-2.8l-2-5.2H11.4V18H9V6zm2.4 1.8v3.2h2c1 0 1.7-.6 1.7-1.6s-.7-1.6-1.7-1.6h-2z" fill="white" fill-opacity="0.9"/>
-            </svg>
-          </div>
-          <div class="message-content">
-            <div class="typing-indicator">
-              <span></span><span></span><span></span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="filter-bar">
@@ -168,7 +158,7 @@ import {
   SendOutlined,
 } from '@ant-design/icons-vue'
 import { useQuerySessionStore } from '@/stores/querySession'
-import { queryRag } from '@/api/query'
+import { queryRagStream } from '@/api/query'
 import type { SourceData } from '@/stores/querySession'
 import { renderMarkdown } from '@/utils/markdown'
 import { resolveImageUrl } from '@/utils/imageAuth'
@@ -312,44 +302,55 @@ async function handleSend(e?: { shiftKey?: boolean }) {
   loading.value = true
 
   try {
-    const res = await queryRag({
-      question: q,
-      dataset_ids: selectedDatasetIds.value.length > 0 ? selectedDatasetIds.value : undefined,
-      doc_ids: selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
+    // 先插入一条空的 assistant 消息，流式过程中逐 token 更新
+    store.addMessage(session.id, {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
     })
-    const sources: SourceData[] = res.sources.map((s) => ({
-      metadata: {
-        chunk_id: s.metadata.chunk_id,
-        filename: s.metadata.filename,
-        page: s.metadata.page,
-        chunk_index: s.metadata.chunk_index,
-        score: s.metadata.score,
+
+    await queryRagStream(
+      {
+        question: q,
+        dataset_ids: selectedDatasetIds.value.length > 0 ? selectedDatasetIds.value : undefined,
+        doc_ids: selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
       },
-      elements: s.elements.map((el) => ({
-        type: el.type,
-        content: el.content,
-        image_url: el.image_url,
-      })),
-    }))
-    // 解析图片 URL（带认证的 blob URL）
-    for (const src of sources) {
-      for (const el of src.elements) {
-        if (el.image_url) el.image_url = await resolveImageUrl(el.image_url)
-      }
-    }
-    store.addMessage(session.id, {
-      role: 'assistant',
-      content: res.answer,
-      total_ms: res.total_ms,
-      sources,
-      timestamp: new Date().toISOString(),
-    })
-  } catch (e: unknown) {
-    store.addMessage(session.id, {
-      role: 'assistant',
-      content: `请求失败: ${(e as Error).message}`,
-      timestamp: new Date().toISOString(),
-    })
+      {
+        onToken: (content) => {
+          const sess = store.getActiveSession()
+          if (sess) {
+            const last = sess.messages[sess.messages.length - 1]
+            if (last && last.role === 'assistant') last.content += content
+          }
+          scrollToBottom()
+        },
+        onResult: async (data) => {
+          const sources: SourceData[] = (data.sources || []).map((s: any) => ({
+            metadata: {
+              chunk_id: s.metadata.chunk_id,
+              filename: s.metadata.filename,
+              page: s.metadata.page,
+              chunk_index: s.metadata.chunk_index,
+              score: s.metadata.score,
+            },
+            elements: s.elements.map((el: any) => ({
+              type: el.type,
+              content: el.content,
+              image_url: el.image_url,
+            })),
+          }))
+          for (const src of sources) {
+            for (const el of src.elements) {
+              if (el.image_url) el.image_url = await resolveImageUrl(el.image_url)
+            }
+          }
+          store.updateLastAssistant(session.id, { total_ms: data.total_ms, sources })
+        },
+        onError: (err) => {
+          store.updateLastAssistant(session.id, { content: `请求失败: ${err.message}` })
+        },
+      },
+    )
   } finally {
     loading.value = false
     scrollToBottom()
@@ -569,8 +570,8 @@ onMounted(async () => {
 /* ── Messages ── */
 .message-row {
   display: flex;
-  gap: var(--space-3);
-  margin-bottom: var(--space-6);
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
   animation: msg-in 0.3s ease;
 }
 
@@ -584,31 +585,32 @@ onMounted(async () => {
 }
 
 .message-avatar {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: var(--font-size-lg);
+  font-size: 15px;
   background: var(--color-bg-sunken);
 }
 
 .message-row.user .message-avatar {
-  background: var(--color-primary);
+  background: linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, #6366f1));
   color: #fff;
   border-radius: var(--radius-md);
+  box-shadow: 0 1px 6px -1px color-mix(in srgb, var(--color-primary) 40%, transparent);
 }
 
 .avatar-bot-icon {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
 }
 
 .message-content {
-  max-width: 70%;
-  min-width: 60px;
+  max-width: 60%;
+  min-width: 40px;
 }
 
 .message-row.user .message-content {
@@ -628,9 +630,15 @@ onMounted(async () => {
 }
 
 .message-row.user .message-text {
-  background: var(--color-primary);
+  background: linear-gradient(135deg, var(--color-primary) 0%, color-mix(in srgb, var(--color-primary) 85%, #6366f1) 100%);
   color: #ffffff;
-  border-bottom-right-radius: var(--radius-sm);
+  padding: 8px 14px;
+  line-height: 1.5;
+  border-radius: 14px 14px 4px 14px;
+  box-shadow: 0 1px 6px -1px color-mix(in srgb, var(--color-primary) 30%, transparent);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  letter-spacing: 0.005em;
 }
 
 .message-row.assistant .message-text {

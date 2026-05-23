@@ -13,7 +13,7 @@ SYSTEM_PROMPT = """你是一个严谨的电力工程领域问答助手。
 回答要求：
 1. 只基于参考资料中的信息作答，不要编造内容
 2. 如果参考资料中没有足够信息，请明确说明"根据现有资料无法回答"
-3. 回答时引用来源，例如"根据《文档名》第X页的内容..."
+3. 回答时引用来源文档名称和页码，例如"根据《文档名》第X页的内容..."
 4. 涉及数据时，准确引用原文中的数值"""
 
 
@@ -34,7 +34,7 @@ class PromptBuilder:
         context_parts = []
         for idx, chunk in enumerate(chunks, 1):
             source_name = (doc_filename_map or {}).get(chunk.metadata.doc_id, chunk.metadata.source)
-            header = f"[来源{idx} - {source_name} 第{chunk.metadata.page}页 - {chunk.metadata.chunk_type}]"
+            header = f"[参考资料{idx}: 《{source_name}》第{chunk.metadata.page}页]"
             # 只用 content，image_url 不进入 Prompt
             element_contents = []
             for elem in chunk.elements:

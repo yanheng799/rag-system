@@ -92,5 +92,14 @@ export const useQuerySessionStore = defineStore('querySession', () => {
     }
   }
 
-  return { sessions, activeSessionId, createSession, getActiveSession, switchSession, deleteSession, renameSession, addMessage }
+  function updateLastAssistant(sessionId: string, updates: Partial<Message>) {
+    const s = sessions.value.find((s) => s.id === sessionId)
+    if (!s) return
+    const last = s.messages[s.messages.length - 1]
+    if (last && last.role === 'assistant') {
+      Object.assign(last, updates)
+    }
+  }
+
+  return { sessions, activeSessionId, createSession, getActiveSession, switchSession, deleteSession, renameSession, addMessage, updateLastAssistant }
 })
