@@ -91,7 +91,12 @@ class RAGOrchestrator:
 
         # 4. 调用 LLM
         llm_start = time.time()
-        answer = self._llm.complete(messages)
+        result = self._llm.complete(messages)
+        if isinstance(result, str):
+            answer = result
+        else:
+            # 流式模式：收集所有 token 拼接为完整回答
+            answer = "".join(result)
         llm_ms = int((time.time() - llm_start) * 1000)
 
         # 5. 后处理

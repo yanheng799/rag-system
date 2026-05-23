@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.api.deps import get_current_user
 from src.api.schemas.query import QueryRequest, QueryResponse
 
 router = APIRouter(prefix="/api/v1", tags=["问答"])
+
+logger = logging.getLogger(__name__)
 
 
 async def resolve_filters(
@@ -77,7 +81,8 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
             show_rewritten=body.show_rewritten,
         )
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from None
+        logger.exception("查询失败: question='%s'", body.question[:80])
+        raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from e
 
     return QueryResponse(
         answer=result.answer,

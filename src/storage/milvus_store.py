@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 FULL_TEXT_MAX_LENGTH = 65535
+IMAGE_URLS_MAX_LENGTH = 65535
 
 
 class MilvusStore(VectorStorePort):
@@ -48,7 +49,7 @@ class MilvusStore(VectorStorePort):
             FieldSchema("full_text", DataType.VARCHAR, max_length=FULL_TEXT_MAX_LENGTH, enable_analyzer=True),
             FieldSchema("chunk_type", DataType.VARCHAR, max_length=16),
             FieldSchema("elements", DataType.VARCHAR, max_length=65535),
-            FieldSchema("image_urls", DataType.VARCHAR, max_length=2048),
+            FieldSchema("image_urls", DataType.VARCHAR, max_length=IMAGE_URLS_MAX_LENGTH),
             FieldSchema("source", DataType.VARCHAR, max_length=512),
             FieldSchema("page", DataType.INT32),
             FieldSchema("chunk_index", DataType.INT32),

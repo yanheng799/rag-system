@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,6 +17,8 @@ from src.api.schemas.retrieve import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["检索"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/retrieve", response_model=RetrieveResponse, summary="检索接口")
@@ -34,6 +37,19 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
 
     start_time = time.time()
     org_id = user.get("org_id", "") or ""
+    logger.info("检索请求: question='%s', mode=%s, top_k=%d, org_id=%s", body.question[:80], body.search_mode, body.top_k, org_id)
+
+    # 查询改写
+    query_rewriter = getattr(request.app.state, "query_rewriter", None)
+    rewritten_queries = None
+    if query_rewriter:
+        queries = query_rewriter.rewrite(body.question)
+        if len(queries) > 1:
+            rewritten_queries = queries
+        logger.info("查询改写启用: %d 个查询 → %s", len(queries), queries)
+    else:
+        queries = [body.question]
+        logger.info("查询改写跳过: rewriter 未加载（query_rewrite_enabled=false）")
 
     # 解析过滤参数
     filters = None
@@ -47,13 +63,40 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
             body.doc_names,
             org_id=org_id,
         )
+    logger.info("检索过滤: filters=%s", filters)
 
-    chunks = searcher.search(
-        question=body.question,
-        top_k=body.top_k,
-        filters=filters,
-    )
+    # 多路检索 + 累加分数合并
+    if len(queries) > 1:
+        from src.models.chunks import RetrievedChunk
+
+        accumulated: dict[str, tuple[RetrievedChunk, float]] = {}
+        for q in queries:
+            results = searcher.search(question=q, top_k=body.top_k, filters=filters)
+            logger.info("子查询 '%s' → %d 条结果", q[:30], len(results))
+            for chunk in results:
+                cid = chunk.metadata.chunk_id
+                if cid in accumulated:
+                    existing_chunk, existing_score = accumulated[cid]
+                    accumulated[cid] = (existing_chunk, existing_score + chunk.score)
+                else:
+                    accumulated[cid] = (chunk, chunk.score)
+        sorted_results = sorted(accumulated.values(), key=lambda x: x[1], reverse=True)
+        chunks = [chunk for chunk, _ in sorted_results[:body.top_k]]
+        for chunk, score in sorted_results[:body.top_k]:
+            chunk.score = score
+    else:
+        chunks = searcher.search(
+            question=body.question,
+            top_k=body.top_k,
+            filters=filters,
+        )
     retrieval_ms = int((time.time() - start_time) * 1000)
+    logger.info(
+        "检索完成: %d 条结果, 耗时=%dms, top_scores=%s",
+        len(chunks),
+        retrieval_ms,
+        [round(c.score, 4) for c in chunks[:5]],
+    )
 
     pg_store = request.app.state.pg_store
 
@@ -97,4 +140,5 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
         total_retrieved=len(debug_chunks),
         retrieval_ms=retrieval_ms,
         chunks=debug_chunks,
+        rewritten_queries=rewritten_queries,
     )

@@ -28,23 +28,27 @@ class QwenClient(LLMClient):
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
-        timeout: int = 30,
+        timeout: int | None = None,
         max_tokens: int = 2048,
         temperature: float = 0.1,
+        stream: bool | None = None,
     ):
         self._api_key = api_key or settings.dashscope_api_key
         self._model = model or settings.llm_model
         self._base_url = base_url or settings.llm_base_url
-        self._timeout = timeout
+        self._timeout = timeout or settings.llm_timeout
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._default_stream = stream if stream is not None else settings.llm_stream
 
-    def complete(self, messages: list[dict], stream: bool = False) -> str | Generator:
+    def complete(self, messages: list[dict], stream: bool | None = None) -> str | Generator:
         """
         调用 LLM 生成回答。
 
         stream=True 时返回 Generator，逐 token yield。
+        未指定 stream 时使用构造时的默认值（settings.llm_stream）。
         """
+        use_stream = stream if stream is not None else self._default_stream
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -54,10 +58,10 @@ class QwenClient(LLMClient):
             "messages": messages,
             "max_tokens": self._max_tokens,
             "temperature": self._temperature,
-            "stream": stream,
+            "stream": use_stream,
         }
 
-        if stream:
+        if use_stream:
             return self._stream_call(headers, payload)
         return self._sync_call(headers, payload)
 

@@ -46,3 +46,4 @@ class RetrieveResponse(BaseModel):
     total_retrieved: int
     retrieval_ms: int
     chunks: list[RetrievedChunkResult]
+    rewritten_queries: list[str] | None = None

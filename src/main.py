@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI):
     app.state.bm25_searcher = bm25_searcher
     app.state.hybrid_searcher = hybrid_searcher
     app.state.llm_client = llm_client
+    app.state.query_rewriter = query_rewriter
     app.state.orchestrator = orchestrator
 
     logger.info("RAG 系统初始化完成")

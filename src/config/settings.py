@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     llm_timeout: int = Field(default=30, description="LLM 请求超时（秒）")
     llm_max_tokens: int = Field(default=2048, description="LLM 最大输出 Token 数")
     llm_temperature: float = Field(default=0.1, description="LLM 温度参数")
+    llm_stream: bool = Field(default=True, description="LLM 是否使用流式调用（避免长响应超时）")
 
     # Embedding 配置
     embedding_model: str = Field(default="bge-large-zh-v1.5", description="Embedding 模型名称")

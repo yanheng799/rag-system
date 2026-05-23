@@ -10,14 +10,15 @@ from src.orchestration.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-REWRITE_SYSTEM_PROMPT = """你是一个查询改写助手。你的任务是将用户的原始问题改写为多个不同角度的搜索查询，以帮助检索到更多相关文档。
+REWRITE_SYSTEM_PROMPT = """你是一个查询改写助手。你的任务是将用户的原始问题改写为多种形式的搜索查询，以帮助检索系统找到更多相关文档。
 
 要求：
-- 生成恰好 {count} 个不同角度的查询
-- 保持原意，但使用不同的表述、关键词、同义词
-- 可以从更宽泛或更具体的视角提问
+- 生成恰好 {count} 个查询，分为两类：
+  - 语义改写：用不同表述、同义词、更宽泛或更具体的视角重述问题（2-3 个）
+  - 关键词查询：提取 2-4 个核心关键词组成短查询，适合关键词检索（1-2 个）
+- 关键词查询示例：如果问题是"查询各种型号的抱杆的整机性能参数"，关键词可以是"抱杆 整机性能参数"或"抱杆 型号"
 - 只返回 JSON 数组，不要任何其他文字
-- 示例格式：["查询1", "查询2", "查询3"]"""
+- 示例格式：["语义改写1", "语义改写2", "关键词1 关键词2"]"""
 
 
 class QueryRewriter:
@@ -41,7 +42,8 @@ class QueryRewriter:
         ]
 
         try:
-            raw = self._llm.complete(messages)
+            result = self._llm.complete(messages, stream=False)
+            raw = result if isinstance(result, str) else "".join(result)
             sub_queries = self._parse_response(raw)
             if not sub_queries:
                 logger.warning("查询改写返回空结果，fallback 为原始问题")
@@ -49,7 +51,6 @@ class QueryRewriter:
 
             result = [question] + sub_queries[:count]
             logger.info("查询改写: 原始='%s' → %d 个查询: %s", question[:30], len(result), result)
-            return result
             return result
         except Exception:
             logger.warning("查询改写失败，fallback 为原始问题", exc_info=True)
