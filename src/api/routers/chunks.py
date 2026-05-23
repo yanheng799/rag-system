@@ -122,8 +122,8 @@ async def _dissolve_orphan_groups(pg_store, milvus_store, embedder, deleted_chun
         await pg_store.clear_group_id([gid])
 
 
-async def _update_milvus_group_id(milvus_store, embedder, chunk_ids: list[str], new_group_id: str) -> None:
-    """更新 Milvus 中指定 chunk 的 group_id（delete + re-insert）"""
+async def _update_milvus_group_id(milvus_store, chunk_ids: list[str], new_group_id: str) -> None:
+    """更新 Milvus 中指定 chunk 的 group_id（保留原有 embedding，delete + re-insert）"""
     import json
 
     if milvus_store._collection is None:
@@ -148,26 +148,23 @@ async def _update_milvus_group_id(milvus_store, embedder, chunk_ids: list[str], 
             "created_at",
             "pages",
             "group_id",
+            "embedding",
+            "org_id",
         ],
     )
 
     if not results:
         return
 
-    texts = [r.get("full_text", "") for r in results]
-    embeddings = embedder.embed_for_index(texts)
-
     milvus_store.delete_by_chunk_ids(chunk_ids)
 
-    for r, emb in zip(results, embeddings, strict=False):
-        # Milvus query 返回 JSON 字符串字段，需反序列化为 list 再传给 insert
+    for r in results:
         if isinstance(r.get("elements"), str):
             r["elements"] = json.loads(r["elements"])
         if isinstance(r.get("image_urls"), str):
             r["image_urls"] = json.loads(r["image_urls"])
         if isinstance(r.get("pages"), str):
             r["pages"] = json.loads(r["pages"])
-        r["embedding"] = emb
         r["group_id"] = new_group_id
         milvus_store.insert([r])
 
@@ -622,13 +619,13 @@ async def link_chunks(request: Request, body: LinkRequest):
             # PG 清空孤儿 group_id
             await pg_store.clear_group_ids_by_ids(orphan_ids)
             # Milvus 重新插入
-            await _update_milvus_group_id(milvus_store, embedder, orphan_ids, "")
+            await _update_milvus_group_id(milvus_store, orphan_ids, "")
 
     # PG: 更新 group_id
     await pg_store.update_chunks_group_id(body.chunk_ids, new_group_id)
 
     # Milvus: 更新 group_id
-    await _update_milvus_group_id(milvus_store, embedder, body.chunk_ids, new_group_id)
+    await _update_milvus_group_id(milvus_store, body.chunk_ids, new_group_id)
 
     return LinkResponse(group_id=new_group_id, chunk_ids=body.chunk_ids)
 
@@ -660,6 +657,6 @@ async def unlink_chunks(request: Request, body: UnlinkRequest):
     await pg_store.clear_group_ids_by_ids(unlink_ids)
 
     # Milvus: 更新 group_id
-    await _update_milvus_group_id(milvus_store, embedder, unlink_ids, "")
+    await _update_milvus_group_id(milvus_store, unlink_ids, "")
 
     return UnlinkResponse(unlinked_count=len(unlink_ids))

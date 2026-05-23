@@ -17,6 +17,7 @@
         </a-button>
         <a-button
           :disabled="selectedKeys.length < 2"
+          :loading="linking"
           @click="handleLink"
         >
           关联选中
@@ -234,12 +235,19 @@ async function handleMerge() {
   }
 }
 
+const linking = ref(false)
+
 async function handleLink() {
+  linking.value = true
   try {
     const res = await linkChunks(selectedKeys.value)
     message.success(`已关联到组 ${res.group_id}`)
+    selectedKeys.value = []
+    fetchChunks()
   } catch (e: unknown) {
     message.error((e as Error).message)
+  } finally {
+    linking.value = false
   }
 }
 
