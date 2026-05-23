@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from src.config.settings import settings
 from src.api.deps import get_current_user
 
 from src.api.schemas.chunks import (
@@ -29,7 +30,7 @@ from src.api.schemas.chunks import (
 
 router = APIRouter(prefix="/api/v1", tags=["分块管理"])
 
-EMBEDDING_MAX_CHARS = 2048
+EMBEDDING_MAX_CHARS = settings.embedding_max_input_length
 
 
 async def _check_chunk_in_org(request: Request, chunk_id: str, org_id: str) -> None:
@@ -154,7 +155,7 @@ async def _update_milvus_group_id(milvus_store, embedder, chunk_ids: list[str], 
         return
 
     texts = [r.get("full_text", "") for r in results]
-    embeddings = embedder.embed(texts)
+    embeddings = embedder.embed_for_index(texts)
 
     milvus_store.delete_by_chunk_ids(chunk_ids)
 
@@ -291,7 +292,7 @@ async def edit_chunk(request: Request, chunk_id: str, body: EditChunkRequest):
     new_char_count = len(new_text)
 
     # 重新 embedding
-    embedding = embedder.embed_single(new_text)
+    embedding = embedder.embed_for_index([new_text])[0]
 
     # Milvus: delete + re-insert（保留其他字段，更新 full_text/embedding/char_count）
     if milvus_store._collection is None:
@@ -406,7 +407,7 @@ async def merge_chunks(request: Request, body: MergeRequest):
     doc = await pg_store.get_document(doc_id)
     source = doc.filename if doc else ""
 
-    embedding = embedder.embed_single(merged_full_text)
+    embedding = embedder.embed_for_index([merged_full_text])[0]
 
     # 解散孤儿组（必须在删除前查询 group_id）
     await _dissolve_orphan_groups(pg_store, milvus_store, embedder, body.chunk_ids)
@@ -506,7 +507,7 @@ async def split_chunk(request: Request, chunk_id: str, body: SplitRequest):
     doc = await pg_store.get_document(doc_id)
     source = doc.filename if doc else ""
 
-    embeddings = embedder.embed([full_text_a, full_text_b])
+    embeddings = embedder.embed_for_index([full_text_a, full_text_b])
 
     milvus_store.delete_by_chunk_ids([chunk_id])
     await pg_store.delete_chunks_by_ids([chunk_id])

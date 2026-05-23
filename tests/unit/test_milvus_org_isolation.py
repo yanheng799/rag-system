@@ -29,6 +29,15 @@ class FakeEmbedder:
     def embed_single(self, text: str) -> list[float]:
         return [0.1] * 1024
 
+    def embed_for_query(self, text: str) -> list[float]:
+        return self.embed_single(text)
+
+    def embed_for_index(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed_single(t) for t in texts]
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return self.embed_for_index(texts)
+
 
 class TrackedVectorStore:
     """记录 search 调用的 org_id 参数"""

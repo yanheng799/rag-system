@@ -111,6 +111,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { getChunkDetail, editChunk, deleteChunk, type ChunkDetail } from '@/api/chunks'
 import { renderMarkdown } from '@/utils/markdown'
+import { resolveImageUrl } from '@/utils/imageAuth'
 import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -123,10 +124,21 @@ const editing = ref(false)
 const saving = ref(false)
 const editText = ref('')
 
+function resolveElementImages() {
+  if (!chunk.value) return
+  chunk.value.elements?.forEach((el) => {
+    if (el.image_url) resolveImageUrl(el.image_url).then((url) => { el.image_url = url })
+  })
+  chunk.value.image_urls?.forEach((url, i) => {
+    resolveImageUrl(url).then((resolved) => { chunk.value!.image_urls![i] = resolved })
+  })
+}
+
 async function fetchChunk() {
   loading.value = true
   try {
     chunk.value = await getChunkDetail(chunkId)
+    resolveElementImages()
   } catch (e: unknown) {
     message.error((e as Error).message)
   } finally {

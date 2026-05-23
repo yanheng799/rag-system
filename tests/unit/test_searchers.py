@@ -32,6 +32,15 @@ class FakeEmbedder:
         self.last_text = text
         return [0.1] * self._dim
 
+    def embed_for_query(self, text: str) -> list[float]:
+        return self.embed_single(text)
+
+    def embed_for_index(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed_single(t) for t in texts]
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return self.embed_for_index(texts)
+
 
 class FakeVectorStore:
     def __init__(self, hits=None):

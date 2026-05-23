@@ -109,7 +109,7 @@
                         <a-image
                           v-for="(url, i) in detailCache[chunk.chunk_id].image_urls"
                           :key="i"
-                          :src="url"
+                          :src="resolvedDetailImages[chunk.chunk_id]?.[i] || url"
                           :width="260"
                           :alt="'图片 ' + (i + 1)"
                         />
@@ -125,7 +125,7 @@
                       <img
                         v-for="(url, i) in chunk.image_urls.slice(0, 3)"
                         :key="i"
-                        :src="`/api/v1/images/${url}`"
+                        :src="thumbUrl(chunk.chunk_id, url, i)"
                         class="thumb"
                         alt="缩略图"
                       />
@@ -149,6 +149,7 @@ import { message } from 'ant-design-vue'
 import { listChunks, getChunkDetail, type ChunkListItem, type ChunkDetail } from '@/api/chunks'
 import { getDocumentStatus, type DocumentStatusResponse } from '@/api/documents'
 import { renderMarkdown } from '@/utils/markdown'
+import { resolveImageUrl } from '@/utils/imageAuth'
 import {
   ArrowLeftOutlined,
   LeftOutlined,
@@ -396,6 +397,23 @@ function goToPage(page: number) {
   currentPage.value = page
 }
 
+// 缩略图已解析的 blob URL（按 chunk_id + url 索引缓存）
+const thumbBlobCache = new Map<string, string>()
+
+function thumbUrl(chunkId: string, rawUrl: string, index: number): string {
+  const key = `${chunkId}_${index}`
+  const cached = thumbBlobCache.get(key)
+  if (cached) return cached
+  const proxyPath = `/api/v1/images/${rawUrl}`
+  resolveImageUrl(proxyPath).then((blobUrl) => {
+    thumbBlobCache.set(key, blobUrl)
+  })
+  return proxyPath
+}
+
+// 展开详情中已解析的图片 URL
+const resolvedDetailImages = ref<Record<string, string[]>>({})
+
 async function toggleExpand(chunkId: string) {
   if (expandedId.value === chunkId) {
     expandedId.value = null
@@ -408,6 +426,11 @@ async function toggleExpand(chunkId: string) {
     } catch {
       // detail fetch failed, show truncated text
     }
+  }
+  const detail = detailCache.value[chunkId]
+  if (detail && detail.image_urls.length) {
+    const resolved = await Promise.all(detail.image_urls.map((url) => resolveImageUrl(url)))
+    resolvedDetailImages.value[chunkId] = resolved
   }
 }
 

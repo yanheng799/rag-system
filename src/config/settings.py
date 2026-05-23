@@ -22,9 +22,18 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.1, description="LLM 温度参数")
 
     # Embedding 配置
-    embedding_model: str = Field(default="text-embedding-v3")
+    embedding_model: str = Field(default="bge-large-zh-v1.5", description="Embedding 模型名称")
+    embedding_base_url: str = Field(
+        default="http://127.0.0.1:8001/v1", description="Embedding 服务地址（OpenAI 兼容）"
+    )
+    embedding_api_key: str = Field(default="placeholder", description="Embedding 服务 API Key")
     embedding_dimension: int = Field(default=1024, description="Embedding 向量维度")
     embedding_batch_size: int = Field(default=10, description="Embedding 批量大小")
+    embedding_max_input_length: int = Field(default=800, description="Embedding 单条文本最大字符数")
+    embedding_query_prefix: str = Field(
+        default="为这个句子生成表示以用于检索相关文章：",
+        description="检索查询时的前缀指令（部分模型需要，如 bge 系列）",
+    )
 
     # PostgreSQL
     postgres_host: str = Field(default="127.0.0.1")

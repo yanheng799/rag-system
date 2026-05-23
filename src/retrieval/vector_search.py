@@ -37,7 +37,7 @@ class VectorSearcher:
         3. 转换为 RetrievedChunk 列表
         4. 按 group_id 合并被拆分的分块
         """
-        embedding = self._embedder.embed_single(question)
+        embedding = self._embedder.embed_for_query(question)
 
         results = self._vector_store.search(
             embedding=embedding,

@@ -171,6 +171,7 @@ import { useQuerySessionStore } from '@/stores/querySession'
 import { queryRag } from '@/api/query'
 import type { SourceData } from '@/stores/querySession'
 import { renderMarkdown } from '@/utils/markdown'
+import { resolveImageUrl } from '@/utils/imageAuth'
 import { listDatasets, type DatasetResponse } from '@/api/datasets'
 import { listDocuments, type DocumentListItem } from '@/api/documents'
 
@@ -330,6 +331,12 @@ async function handleSend(e?: { shiftKey?: boolean }) {
         image_url: el.image_url,
       })),
     }))
+    // 解析图片 URL（带认证的 blob URL）
+    for (const src of sources) {
+      for (const el of src.elements) {
+        if (el.image_url) el.image_url = await resolveImageUrl(el.image_url)
+      }
+    }
     store.addMessage(session.id, {
       role: 'assistant',
       content: res.answer,

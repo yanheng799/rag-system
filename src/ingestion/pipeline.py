@@ -182,7 +182,7 @@ class IngestionPipeline:
                 logger.info("文档所有分块为空，跳过: doc_id=%s", doc_id)
                 return
             texts = [c.full_text for c in non_empty_chunks]
-            embeddings = await asyncio.to_thread(self._embedder.embed, texts)
+            embeddings = await asyncio.to_thread(self._embedder.embed_for_index, texts)
 
             # 7. 写入 Milvus
             milvus_records = []

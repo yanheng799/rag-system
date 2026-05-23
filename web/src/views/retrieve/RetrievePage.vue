@@ -110,6 +110,7 @@ import { retrieveChunks, type RetrieveResponse } from '@/api/retrieve'
 import { listDatasets, type DatasetResponse } from '@/api/datasets'
 import { listDocuments, type DocumentListItem } from '@/api/documents'
 import { renderMarkdown } from '@/utils/markdown'
+import { resolveImageUrl } from '@/utils/imageAuth'
 import { SearchOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -191,6 +192,12 @@ async function handleRetrieve() {
       dataset_ids: selectedDatasetIds.value.length > 0 ? selectedDatasetIds.value : undefined,
       doc_ids: selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
     })
+    // 解析图片 URL（带认证的 blob URL）
+    for (const chunk of result.value.chunks) {
+      if (chunk.image_urls?.length) {
+        chunk.image_urls = await Promise.all(chunk.image_urls.map((url) => resolveImageUrl(url)))
+      }
+    }
   } catch (e: unknown) {
     message.error((e as Error).message)
   } finally {

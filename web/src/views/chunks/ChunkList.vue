@@ -54,7 +54,7 @@
         <template v-if="column.key === 'action'">
           <a-space>
             <router-link :to="chunkDetailLink(record.chunk_id)">查看</router-link>
-            <a-button type="link" size="small" @click="openSplitModal(record)">拆分</a-button>
+            <a-button type="link" size="small" :disabled="record.element_count <= 1" @click="openSplitModal(record)">拆分</a-button>
             <a-popconfirm title="确定删除？" @confirm="handleDelete(record.chunk_id)">
               <a-button type="link" danger size="small">删除</a-button>
             </a-popconfirm>
@@ -68,17 +68,45 @@
       title="拆分分块"
       @ok="handleSplit"
       :confirm-loading="splitting"
+      :ok-button-props="{ disabled: splitAt <= 0 || !chunkDetail }"
       centered
+      width="560px"
     >
-      <p>将在指定字符位置拆分此分块为两个。</p>
-      <a-input-number
-        v-model:value="splitAt"
-        :min="1"
-        :max="currentChunk?.char_count ?? 1"
-        style="width: 100%"
-        addon-before="拆分位置"
-      />
-      <div style="margin-top: 8px">
+      <a-spin :spinning="detailLoading">
+        <template v-if="chunkDetail">
+          <p style="color: var(--color-text-secondary); margin-bottom: 12px">
+            点击元素之间的分割线选拆分位置
+          </p>
+
+          <div class="element-list">
+            <template v-for="(elem, idx) in chunkDetail.elements" :key="idx">
+              <!-- 分割线 (第一个元素之前不显示) -->
+              <div
+                v-if="idx > 0"
+                class="split-divider"
+                :class="{ active: splitAt === idx }"
+                @click="splitAt = idx"
+              >
+                <span class="divider-label">在元素 {{ idx }} 后拆分</span>
+              </div>
+              <!-- 元素行 -->
+              <div class="element-row">
+                <a-tag :color="elem.type === 'table' ? 'blue' : elem.image_url ? 'purple' : 'default'" size="small">
+                  {{ elementTypeLabel(elem) }}
+                </a-tag>
+                <span class="element-content">{{ elementPreview(elem) }}</span>
+              </div>
+            </template>
+          </div>
+
+          <!-- 拆分结果预览 -->
+          <div v-if="splitAt > 0" class="split-preview">
+            {{ splitPreviewText() }}
+          </div>
+        </template>
+      </a-spin>
+
+      <div style="margin-top: 12px">
         <a-checkbox v-model:checked="linkAfterSplit">拆分后关联</a-checkbox>
       </div>
     </a-modal>
@@ -95,7 +123,9 @@ import {
   mergeChunks,
   splitChunk,
   linkChunks,
+  getChunkDetail,
   type ChunkListItem,
+  type ChunkDetail,
 } from '@/api/chunks'
 import { getDocumentStatus } from '@/api/documents'
 import { getDataset } from '@/api/datasets'
@@ -121,6 +151,8 @@ const splitting = ref(false)
 const splitAt = ref(0)
 const linkAfterSplit = ref(false)
 const currentChunk = ref<ChunkListItem | null>(null)
+const chunkDetail = ref<ChunkDetail | null>(null)
+const detailLoading = ref(false)
 
 const columns = [
   { title: 'ID', key: 'chunk_id', width: 160 },
@@ -211,11 +243,47 @@ async function handleLink() {
   }
 }
 
-function openSplitModal(chunk: ChunkListItem) {
+async function openSplitModal(chunk: ChunkListItem) {
   currentChunk.value = chunk
-  splitAt.value = Math.floor(chunk.char_count / 2)
+  splitAt.value = Math.floor(chunk.element_count / 2)
   linkAfterSplit.value = false
+  chunkDetail.value = null
+  detailLoading.value = true
   splitModalVisible.value = true
+  try {
+    chunkDetail.value = await getChunkDetail(chunk.chunk_id)
+  } catch (e: unknown) {
+    message.error((e as Error).message)
+    splitModalVisible.value = false
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function elementPreview(elem: { type: string; content: string; image_url?: string }) {
+  if (elem.type === 'table') {
+    const lines = elem.content.split('\n').filter((l: string) => l.trim())
+    return `表格 (${lines.length} 行)`
+  }
+  if (elem.image_url) {
+    return `图片`
+  }
+  return elem.content.slice(0, 50) + (elem.content.length > 50 ? '…' : '')
+}
+
+function elementTypeLabel(elem: { type: string; image_url?: string }) {
+  if (elem.image_url) return 'image'
+  return elem.type || 'text'
+}
+
+function splitPreviewText() {
+  if (!chunkDetail.value || splitAt.value <= 0) return ''
+  const elems = chunkDetail.value.elements
+  const aElems = elems.slice(0, splitAt.value)
+  const bElems = elems.slice(splitAt.value)
+  const aChars = aElems.reduce((s, e) => s + (e.content?.length ?? 0), 0)
+  const bChars = bElems.reduce((s, e) => s + (e.content?.length ?? 0), 0)
+  return `A 部分 (${aElems.length} 个元素, ${aChars} 字)  |  B 部分 (${bElems.length} 个元素, ${bChars} 字)`
 }
 
 async function handleSplit() {
@@ -300,5 +368,98 @@ onMounted(() => {
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   line-height: 1.5;
+}
+
+.element-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 4px 0;
+}
+
+.element-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+}
+
+.element-content {
+  color: var(--color-text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.split-divider {
+  position: relative;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  margin: 0 8px;
+  border-radius: var(--radius-sm);
+}
+
+.split-divider::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 50%;
+  height: 1px;
+  background: var(--color-border);
+  transition: background-color 0.15s;
+}
+
+.split-divider:hover {
+  background-color: var(--color-primary-bg);
+}
+
+.split-divider:hover::before {
+  background: var(--color-primary);
+}
+
+.split-divider.active {
+  background-color: var(--color-primary-bg);
+}
+
+.split-divider.active::before {
+  height: 2px;
+  background: var(--color-primary);
+}
+
+.divider-label {
+  position: relative;
+  z-index: 1;
+  background: var(--color-bg-container);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--color-text-quaternary);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.split-divider:hover .divider-label,
+.split-divider.active .divider-label {
+  opacity: 1;
+  color: var(--color-primary);
+}
+
+.split-preview {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--color-fill-quaternary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 </style>
