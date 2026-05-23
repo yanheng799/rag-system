@@ -553,16 +553,19 @@ fields = [
 用户问题 (+ 可选过滤: dataset_ids / doc_ids / doc_names)
    │
    ▼
-[查询理解]   → 意图识别、关键词提取、查询改写
+[查询改写]   → LLM 生成 N 个不同角度子查询（可配置，默认 3 个）
+   │            原始问题 + 子查询一起参与后续检索
+   │            通过 settings.query_rewrite_enabled 全局开关控制
    │
    ▼
 [过滤解析]   → API 层将 dataset_ids / doc_names 通过 PG 解析为 doc_ids 列表
    │
    ▼
-[多路检索]   → 向量检索 ║ BM25 关键词检索
+[多路检索]   → 每个查询独立走：向量检索 ║ BM25 关键词检索
    │            注入 doc_id in [...] 过滤条件（来源于数据集/文档ID/文档名称）
+   │            共 (1 + rewrite_count) × 2 路检索结果
    ▼
-[结果融合]   → RRF 算法合并多路结果
+[结果合并]   → 按 chunk_id 去重，累加分数（多路命中次数越多分数越高）
    │
    ▼
 [重排序]     → BGE-Reranker Cross-Encoder 精排 Top-5
@@ -606,33 +609,56 @@ class RetrievedChunk:
 
 **性能策略**：粗召回阶段取 Top 20-50，重排序后取 Top 5，平衡召回率与延迟。
 
+**查询改写（多查询扩展）**：
+
+- **目标**：用户原始问题通常短且模糊，通过 LLM 生成 N 个不同角度的子查询，扩展检索覆盖面
+- **流程**：
+  1. 原始问题送入 LLM，prompt 要求生成 N 个子查询，输出纯 JSON 数组格式
+  2. 原始问题 + 所有子查询一起参与检索（共 `1 + rewrite_count` 路查询）
+  3. 每路查询独立走混合检索（向量 + BM25 + RRF 融合）
+  4. 所有路的结果按 chunk_id 去重，累加分数（多路命中越多分数越高）
+- **配置项**：
+  - `query_rewrite_enabled: bool = True` — 全局开关，关闭后跳过改写，行为与原流程一致
+  - `query_rewrite_count: int = 3` — 生成的子查询数量
+- **模块位置**：`src/orchestration/query_rewriter.py`，与 `PromptBuilder` 同级
+- **LLM**：复用 `QwenClient`，改写和回答共用同一模型
+- **适用范围**：普通查询（`/query`）和流式查询（`/query/ws`）均走改写
+- **API 响应**：`QueryRequest` 加 `show_rewritten: bool = False` 字段，开启时 `QueryResponse` 返回 `rewritten_queries: list[str]`
+- **容错**：JSON 解析失败时 fallback 为仅使用原始问题检索
+
 ### 3.5 第四层：编排调度层
 
 ```python
 class RAGOrchestrator:
-    def query(self, question):
-        # 1. 判断是否需要多跳推理
-        if needs_multi_hop(question):
-            chunks = multi_hop_retrieve(question)
-        else:
-            chunks = single_retrieve(question)
+    def __init__(self, searcher, llm_client, prompt_builder, doc_store, query_rewriter):
+        self._searcher = searcher
+        self._llm = llm_client
+        self._prompt_builder = prompt_builder
+        self._doc_store = doc_store
+        self._query_rewriter = query_rewriter  # QueryRewriter
 
-        # 2. 构建 Prompt（只用 full_text，image_url 不进 Prompt）
+    def query(self, question):
+        # 1. 查询改写（可关闭）
+        if self._query_rewriter:
+            queries = self._query_rewriter.rewrite(question)  # [原始, 子查询1, 子查询2, ...]
+        else:
+            queries = [question]
+
+        # 2. 多路检索 + 合并去重
+        all_chunks = []
+        for q in queries:
+            chunks = self._searcher.search(q)
+            all_chunks.append(chunks)
+        chunks = merge_and_dedup(all_chunks)  # chunk_id 去重，累加分数
+
+        # 3. 构建 Prompt（只用 full_text，image_url 不进 Prompt）
         prompt = prompt_builder.build(question, chunks)
 
-        # 3. 调用 LLM（通过统一接口，可热替换）
+        # 4. 调用 LLM（通过统一接口，可热替换）
         answer = llm_client.complete(prompt)
 
-        # 4. 后处理：来源标注 + image_url 代理替换
+        # 5. 后处理：来源标注 + image_url 代理替换
         return post_process(answer, chunks)
-
-    def post_process(self, answer, chunks):
-        # 对 image_url 替换为后端代理 URL（无过期限制）
-        for chunk in chunks:
-            for elem in chunk.elements:
-                if elem.image_url:
-                    elem.image_url = f"/api/v1/images/{elem.image_url}"
-        return build_response(answer, chunks)
 ```
 
 同时负责：流式输出、超时重试、降级策略（检索失败时的兜底处理）。
@@ -1028,6 +1054,7 @@ PDF / Word / Excel / TXT / Markdown / CSV 文档上传
 - **替换向量库** → 修改 `VectorStorePort` 实现类，业务代码不动
 - **升级 LLM** → 修改 `LLMClient` 配置项，切换模型端点；`FallbackLLMClient` 自动降级到备用模型
 - **优化检索策略** → 替换 Pipeline 中的单个节点，其余节点不受影响；RRF 权重通过配置中心运行时调整
+- **查询改写调优** → 修改 `query_rewriter.py` 中的 prompt 模板或调整 `query_rewrite_count` 配置项；通过 `query_rewrite_enabled` 全局开关可快速回退
 - **增加新接口** → 在用户交互层新增 Handler，通过鉴权中间件统一保护
 - **新增 API Key** → 用户通过管理接口创建 API Key，绑定组织；第三方系统使用 `Authorization: Bearer rag-ak-xxx` 调用任意 API，与 JWT 共享同一鉴权链路
 - **切换对象存储** → 修改 `ObjectStoragePort` 实现，图片/文档代理端点统一由 `/api/v1/images/{path}` 路由转发

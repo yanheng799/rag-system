@@ -37,7 +37,9 @@ class VectorSearcher:
         3. 转换为 RetrievedChunk 列表
         4. 按 group_id 合并被拆分的分块
         """
+        logger.info("向量检索开始: question='%s', top_k=%d, org_id=%s", question[:80], top_k, org_id)
         embedding = self._embedder.embed_for_query(question)
+        logger.info("查询向量化完成: dim=%d", len(embedding))
 
         results = self._vector_store.search(
             embedding=embedding,
@@ -45,7 +47,11 @@ class VectorSearcher:
             filters=filters,
             org_id=org_id,
         )
-        logger.info("向量检索完成: %d 条结果", len(results))
+        logger.info(
+            "向量检索完成: %d 条结果, scores=%s",
+            len(results),
+            [round(r["score"], 4) for r in results[:5]],
+        )
 
         chunks = [hit_to_chunk(hit) for hit in results]
         chunks = merge_grouped_chunks(chunks, self._vector_store.fetch_by_group_ids)

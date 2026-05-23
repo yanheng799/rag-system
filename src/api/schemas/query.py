@@ -9,6 +9,7 @@ class QueryRequest(BaseModel):
     dataset_ids: list[str] | None = None
     doc_ids: list[str] | None = None
     doc_names: list[str] | None = None
+    show_rewritten: bool = Field(default=False, description="是否返回改写后的子查询")
 
 
 class ElementSchema(BaseModel):
@@ -38,3 +39,4 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list[SourceSchema]
     total_ms: int
+    rewritten_queries: list[str] | None = None

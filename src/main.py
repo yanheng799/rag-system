@@ -8,12 +8,14 @@ from fastapi.responses import HTMLResponse
 
 from src.api.middleware.error_handler import ErrorHandlerMiddleware
 from src.api.routers import api_keys, auth, chunks, datasets, documents, images, orgs, query, retrieve
+from src.config.settings import settings
 from src.ingestion.chunkers.registry import init_chunkers
 from src.ingestion.embedder import Embedder
 from src.ingestion.parsers.registry import init_parsers
 from src.orchestration.llm_client import QwenClient
 from src.orchestration.orchestrator import RAGOrchestrator
 from src.orchestration.prompt_builder import PromptBuilder
+from src.orchestration.query_rewriter import QueryRewriter
 from src.retrieval.bm25_search import BM25Searcher
 from src.retrieval.hybrid_search import HybridSearcher
 from src.retrieval.vector_search import VectorSearcher
@@ -74,11 +76,13 @@ async def lifespan(app: FastAPI):
     prompt_builder = PromptBuilder()
 
     # 编排器
+    query_rewriter = QueryRewriter(llm_client) if settings.query_rewrite_enabled else None
     orchestrator = RAGOrchestrator(
         searcher=hybrid_searcher,
         llm_client=llm_client,
         prompt_builder=prompt_builder,
         doc_store=pg_store,
+        query_rewriter=query_rewriter,
     )
 
     # 组件注入到 app.state

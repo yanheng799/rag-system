@@ -11,6 +11,7 @@ from src.models.chunks import RetrievedChunk
 from src.models.documents import QueryLogRecord
 from src.orchestration.llm_client import LLMClient
 from src.orchestration.prompt_builder import PromptBuilder
+from src.orchestration.query_rewriter import QueryRewriter
 from src.retrieval.hybrid_search import HybridSearcher
 from src.retrieval.vector_search import VectorSearcher
 from src.storage.ports import DocumentStorePort
@@ -25,6 +26,7 @@ class QueryResponse:
     answer: str
     sources: list[dict]
     total_ms: int
+    rewritten_queries: list[str] | None = None
 
 
 class RAGOrchestrator:
@@ -36,11 +38,13 @@ class RAGOrchestrator:
         llm_client: LLMClient,
         prompt_builder: PromptBuilder,
         doc_store: DocumentStorePort,
+        query_rewriter: QueryRewriter | None = None,
     ):
         self._searcher = searcher
         self._llm = llm_client
         self._prompt_builder = prompt_builder
         self._doc_store = doc_store
+        self._query_rewriter = query_rewriter
 
     async def query(
         self,
@@ -49,23 +53,32 @@ class RAGOrchestrator:
         user_id: str | None = None,
         filters: dict | None = None,
         org_id: str | None = None,
+        show_rewritten: bool = False,
     ) -> QueryResponse:
         """
         完整问答流程：
-        1. 向量检索
-        2. 构建 Prompt
-        3. 调用 LLM
-        4. 后处理（签名 URL 替换）
-        5. 写入查询日志
+        1. 查询改写（可选）
+        2. 多路检索 + 合并去重
+        3. 构建 Prompt
+        4. 调用 LLM
+        5. 后处理
+        6. 写入查询日志
         """
         start_time = time.time()
+        logger.info("查询开始: question='%s', top_k=%d, filters=%s, org_id=%s", question[:80], top_k, filters, org_id)
 
-        # 1. 向量检索
+        # 1. 查询改写
+        if self._query_rewriter:
+            queries = self._query_rewriter.rewrite(question)
+        else:
+            queries = [question]
+
+        # 2. 多路检索 + 合并去重
         retrieval_start = time.time()
-        chunks = self._searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
+        chunks = self._multi_query_search(queries, top_k=top_k, filters=filters, org_id=org_id)
         retrieval_ms = int((time.time() - retrieval_start) * 1000)
 
-        # 1.5 批量查询文档的真实 filename（用于 Prompt 和响应）
+        # 2.5 批量查询文档的真实 filename
         unique_doc_ids = list({c.metadata.doc_id for c in chunks})
         doc_filename_map: dict[str, str] = {}
         for did in unique_doc_ids:
@@ -73,20 +86,20 @@ class RAGOrchestrator:
             if doc:
                 doc_filename_map[did] = doc.filename
 
-        # 2. 构建 Prompt
+        # 3. 构建 Prompt
         messages = self._prompt_builder.build(question, chunks, doc_filename_map)
 
-        # 3. 调用 LLM
+        # 4. 调用 LLM
         llm_start = time.time()
         answer = self._llm.complete(messages)
         llm_ms = int((time.time() - llm_start) * 1000)
 
-        # 4. 后处理：签名 URL 替换 + 真实 filename
+        # 5. 后处理
         sources = self._build_response_sources(chunks, doc_filename_map)
 
         total_ms = int((time.time() - start_time) * 1000)
 
-        # 5. 写入查询日志
+        # 6. 写入查询日志
         log = QueryLogRecord(
             log_id=f"qlog_{uuid.uuid4().hex[:12]}",
             question=question,
@@ -101,7 +114,8 @@ class RAGOrchestrator:
         await self._doc_store.save_query_log(log)
 
         logger.info(
-            "查询完成: retrieval=%dms, llm=%dms, total=%dms, chunks=%d",
+            "查询完成: queries=%d, retrieval=%dms, llm=%dms, total=%dms, chunks=%d",
+            len(queries),
             retrieval_ms,
             llm_ms,
             total_ms,
@@ -112,6 +126,7 @@ class RAGOrchestrator:
             answer=answer,
             sources=sources,
             total_ms=total_ms,
+            rewritten_queries=queries if show_rewritten and len(queries) > 1 else None,
         )
 
     async def query_stream(
@@ -124,12 +139,19 @@ class RAGOrchestrator:
     ):
         """
         流式问答：
-        1. 先执行检索
-        2. 流式调用 LLM，逐 token yield
-        3. 最后 yield 来源信息
+        1. 查询改写（可选）
+        2. 多路检索
+        3. 流式调用 LLM
+        4. 最后 yield 来源信息
         """
-        # 检索
-        chunks = self._searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
+        # 改写
+        if self._query_rewriter:
+            queries = self._query_rewriter.rewrite(question)
+        else:
+            queries = [question]
+
+        # 多路检索
+        chunks = self._multi_query_search(queries, top_k=top_k, filters=filters, org_id=org_id)
 
         # 批量查询文档的真实 filename
         unique_doc_ids = list({c.metadata.doc_id for c in chunks})
@@ -149,6 +171,39 @@ class RAGOrchestrator:
         sources = self._build_response_sources(chunks, doc_filename_map)
         yield {"type": "sources", "sources": sources}
         yield {"type": "done"}
+
+    def _multi_query_search(
+        self,
+        queries: list[str],
+        top_k: int = 5,
+        filters: dict | None = None,
+        org_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        """多路查询检索，按 chunk_id 累加分数后去重"""
+        if len(queries) == 1:
+            return self._searcher.search(queries[0], top_k=top_k, filters=filters, org_id=org_id)
+
+        accumulated: dict[str, tuple[RetrievedChunk, float]] = {}
+
+        for q in queries:
+            results = self._searcher.search(q, top_k=top_k, filters=filters, org_id=org_id)
+            for chunk in results:
+                cid = chunk.metadata.chunk_id
+                if cid in accumulated:
+                    existing_chunk, existing_score = accumulated[cid]
+                    accumulated[cid] = (existing_chunk, existing_score + chunk.score)
+                else:
+                    accumulated[cid] = (chunk, chunk.score)
+
+        # 按累加分数降序排序
+        sorted_chunks = sorted(accumulated.values(), key=lambda x: x[1], reverse=True)
+        result = []
+        for chunk, score in sorted_chunks[:top_k]:
+            chunk.score = score
+            result.append(chunk)
+
+        logger.info("多路检索合并: %d 路查询 → %d 个去重结果", len(queries), len(result))
+        return result
 
     def _build_response_sources(self, chunks: list[RetrievedChunk], doc_filename_map: dict[str, str]) -> list[dict]:
         """构建响应中的 sources 列表，替换为代理 URL + 真实 filename"""

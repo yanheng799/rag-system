@@ -30,13 +30,18 @@ class BM25Searcher:
         2. 转换为 RetrievedChunk 列表
         3. 按 group_id 合并被拆分的分块
         """
+        logger.info("BM25 检索开始: question='%s', top_k=%d, org_id=%s", question[:80], top_k, org_id)
         results = self._store.bm25_search(
             query_text=question,
             top_k=top_k,
             filters=filters,
             org_id=org_id,
         )
-        logger.info("BM25 检索完成: %d 条结果", len(results))
+        logger.info(
+            "BM25 检索完成: %d 条结果, scores=%s",
+            len(results),
+            [round(r["score"], 4) for r in results[:5]],
+        )
 
         chunks = [hit_to_chunk(hit) for hit in results]
         chunks = merge_grouped_chunks(chunks, self._store.fetch_by_group_ids)

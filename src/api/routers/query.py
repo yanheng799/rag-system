@@ -74,6 +74,7 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
             top_k=body.top_k,
             filters=filters,
             org_id=org_id,
+            show_rewritten=body.show_rewritten,
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"LLM 服务不可用: {e!s}") from None
@@ -82,4 +83,5 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
         answer=result.answer,
         sources=result.sources,
         total_ms=result.total_ms,
+        rewritten_queries=result.rewritten_queries,
     )

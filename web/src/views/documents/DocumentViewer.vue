@@ -397,18 +397,23 @@ function goToPage(page: number) {
   currentPage.value = page
 }
 
-// 缩略图已解析的 blob URL（按 chunk_id + url 索引缓存）
-const thumbBlobCache = new Map<string, string>()
+// 缩略图已解析的 blob URL（响应式缓存，解析完成后触发重新渲染）
+const thumbBlobCache = ref<Record<string, string>>({})
+
+async function resolveThumb(chunkId: string, rawUrl: string, index: number) {
+  const key = `${chunkId}_${index}`
+  if (thumbBlobCache.value[key]) return
+  const proxyPath = `/api/v1/images/${rawUrl}`
+  const blobUrl = await resolveImageUrl(proxyPath)
+  thumbBlobCache.value = { ...thumbBlobCache.value, [key]: blobUrl }
+}
 
 function thumbUrl(chunkId: string, rawUrl: string, index: number): string {
   const key = `${chunkId}_${index}`
-  const cached = thumbBlobCache.get(key)
+  const cached = thumbBlobCache.value[key]
   if (cached) return cached
-  const proxyPath = `/api/v1/images/${rawUrl}`
-  resolveImageUrl(proxyPath).then((blobUrl) => {
-    thumbBlobCache.set(key, blobUrl)
-  })
-  return proxyPath
+  resolveThumb(chunkId, rawUrl, index)
+  return ''
 }
 
 // 展开详情中已解析的图片 URL

@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     # 签名 URL 配置
     signed_url_expire_seconds: int = Field(default=3600, description="签名 URL 有效期（秒）")
 
+    # 查询改写配置
+    query_rewrite_enabled: bool = Field(default=True, description="是否启用查询改写（多查询扩展）")
+    query_rewrite_count: int = Field(default=3, description="查询改写生成的子查询数量")
+
     @property
     def postgres_dsn(self) -> str:
         """PostgreSQL 异步连接字符串"""

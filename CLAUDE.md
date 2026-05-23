@@ -105,6 +105,7 @@ src/
 └── orchestration/
     ├── orchestrator.py      # RAGOrchestrator
     ├── prompt_builder.py    # Prompt construction
+    ├── query_rewriter.py    # Multi-query expansion via LLM
     └── llm_client.py        # DashScope Qwen client
 ```
 

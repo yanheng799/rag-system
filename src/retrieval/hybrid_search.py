@@ -40,11 +40,17 @@ class HybridSearcher:
         bm25_chunks = self._bm25_searcher.search(question, top_k=top_k, filters=filters, org_id=org_id)
 
         logger.info(
-            "混合检索: 向量 %d 条, BM25 %d 条",
+            "混合检索: 向量 %d 条 (scores=%s), BM25 %d 条 (scores=%s)",
             len(vector_chunks),
+            [round(c.score, 4) for c in vector_chunks[:3]],
             len(bm25_chunks),
+            [round(c.score, 4) for c in bm25_chunks[:3]],
         )
 
         fused = rrf_fuse(vector_chunks, bm25_chunks)
-        logger.info("RRF 融合后: %d 条结果", len(fused))
+        logger.info(
+            "RRF 融合后: %d 条结果, scores=%s",
+            len(fused),
+            [round(c.score, 4) for c in fused[:5]],
+        )
         return fused
