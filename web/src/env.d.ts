@@ -5,3 +5,13 @@ declare module '*.vue' {
   const component: DefineComponent<object, object, unknown>
   export default component
 }
+
+declare module 'mammoth/mammoth.browser.js' {
+  interface MammothOptions {
+    arrayBuffer?: ArrayBuffer
+  }
+  const mammoth: {
+    convertToHtml: (input: MammothOptions) => Promise<{ value: string }>
+  }
+  export default mammoth
+}

@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     # 签名 URL 配置
     signed_url_expire_seconds: int = Field(default=3600, description="签名 URL 有效期（秒）")
 
+    # Reranker 配置
+    rerank_api_url: str = Field(default="", description="Reranker 服务地址（为空则不启用）")
+    rerank_api_key: str = Field(default="", description="Reranker 服务 API Key")
+    rerank_model: str = Field(default="bge-reranker-large", description="Reranker 模型名称")
+    rerank_fetch_multiplier: int = Field(default=3, description="开启 reranker 时检索召回倍数")
+
     # 查询改写配置
     query_rewrite_enabled: bool = Field(default=True, description="是否启用查询改写（多查询扩展）")
     query_rewrite_count: int = Field(default=3, description="查询改写生成的子查询数量")

@@ -16,6 +16,7 @@ export interface DocumentStatusResponse {
   file_size: number | null
   file_type: string | null
   raw_file_url: string | null
+  dataset_id: string | null
   chunk_count: number
   chunk_options: Record<string, unknown> | null
   uploaded_at: string | null
@@ -69,6 +70,8 @@ export interface DocumentListItem {
   error_msg: string | null
   file_size: number | null
   file_type: string | null
+  raw_file_url: string | null
+  dataset_id: string | null
   chunk_count: number
   chunk_options: Record<string, unknown> | null
   uploaded_at: string | null

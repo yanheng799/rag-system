@@ -8,6 +8,9 @@
         <h2 class="detail-title">{{ chunk?.chunk_id || '加载中…' }}</h2>
       </div>
       <div class="header-actions">
+        <a-popconfirm v-if="!editing" title="确定删除此分块？" @confirm="handleDelete">
+          <a-button type="text" danger>删除</a-button>
+        </a-popconfirm>
         <a-button v-if="!editing" type="primary" @click="startEdit">编辑</a-button>
         <template v-else>
           <a-button @click="cancelEdit">取消</a-button>

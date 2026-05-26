@@ -7,12 +7,15 @@ export interface RetrieveRequest {
   dataset_ids?: string[]
   doc_ids?: string[]
   doc_names?: string[]
+  use_reranker?: boolean
+  rerank_top_n?: number
 }
 
 export interface ChunkScores {
   vector_score: number
   bm25_score: number
   rrf_score: number | null
+  rerank_score: number | null
 }
 
 export interface ChunkMetadataResult {

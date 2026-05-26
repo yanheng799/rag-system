@@ -607,6 +607,24 @@ class RetrievedChunk:
   → 返回完整段落 (1545 chars, score=0.85)
 ```
 
+**重排序（Reranker）**：
+
+- **模型**：bge-reranker-large，自部署，通过 `/v1/rerank` API 调用
+- **适用范围**：仅在 `/api/v1/retrieve` 接口中生效，query/RAG 流程不经过 reranker
+- **触发方式**：请求参数 `use_reranker: bool = False` + `rerank_top_n: int = 5`，用户按需开启
+- **调用时机**：chunk merge 之后、返回之前。Reranker 看到的是合并后的完整 chunk 内容
+- **召回策略**：`top_k` 语义不变（始终表示最终返回数量）。开启 reranker 时，内部自动按 `top_k × RERANK_FETCH_MULTIPLIER`（默认 3）扩大检索召回量，reranker 从大候选池中精排后输出 `top_k` 条
+- **documents 字段**：使用 chunk 的 `full_text` 传给 reranker，超长文本由模型自动截断
+- **响应分数**：`ChunkScores` 新增 `rerank_score: Optional[float] = None`，与 `rrf_score` 分开展示，方便对比检索排序与精排排序的差异
+- **容错**：reranker 调用失败时降级返回原始检索结果（不排序变化），日志记录警告
+- **配置项**：
+  - `RERANK_API_URL`：reranker 服务地址
+  - `RERANK_API_KEY`：可选 API Key
+  - `RERANK_MODEL`：模型名称，默认 `bge-reranker-large`
+  - `RERANK_FETCH_MULTIPLIER`：召回倍数，默认 3
+- **模块位置**：`src/retrieval/reranker.py`
+- **DI 组装**：`main.py` 中实例化 `RerankerClient`，挂到 `app.state.reranker_client`。未配置 `RERANK_API_URL` 时不实例化
+
 **性能策略**：粗召回阶段取 Top 20-50，重排序后取 Top 5，平衡召回率与延迟。
 
 **查询改写（多查询扩展）**：
@@ -699,7 +717,7 @@ class RAGOrchestrator:
 | POST | `/api/v1/documents/ingest` | 解析文档（`chunk_options` 选填：`strategy`/`max_size`/`min_size`/`overlap`/`vertical_gap`） |
 | DELETE | `/api/v1/documents/{doc_id}` | 删除文档（级联清理向量+分块+OSS） |
 | POST | `/api/v1/query` | 问答（SSE 流式响应，支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
-| POST | `/api/v1/retrieve` | 检索调试（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤） |
+| POST | `/api/v1/retrieve` | 检索调试（支持 `dataset_ids` / `doc_ids` / `doc_names` 过滤，可选 `use_reranker` + `rerank_top_n` 开启重排序） |
 | GET | `/api/v1/documents/{doc_id}/chunks` | 文档分块列表（分页） |
 | GET | `/api/v1/chunks/{chunk_id}` | 分块详情（完整 elements） |
 | DELETE | `/api/v1/chunks/{chunk_id}` | 删除单个分块 |
@@ -862,7 +880,7 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 | Embedding 模型 | 本地 bge-large-zh-v1.5 / DashScope text-embedding-v3（可配置切换） | 1024 维，通过 `.env` 切换本地/云端 |
 | 任务队列 | Phase 1 同步；Phase 4 Celery + Redis | 异步摄入、失败重试、死信队列 |
 | API 鉴权 | JWT / API Key | JWT（前端用户登录）+ API Key（外部系统集成），统一通过 `get_current_user` 鉴权中间件 |
-| 重排序 | BGE-Reranker-v2-m3 | Phase 2 引入：BAAI 出品，中文优秀，完全本地化 |
+| 重排序 | bge-reranker-large（自部署） | Phase 2 引入：BAAI 出品，中文优秀，自部署推理服务，`/v1/rerank` API 调用 |
 | 大语言模型 | Qwen via DashScope | 中文能力强，云端 API 调用，零部署 |
 | 数据库迁移 | Alembic | 版本化管理 Schema 变更 |
 | 配置管理 | pydantic-settings | `.env` 文件 + 环境变量覆盖 |
@@ -948,9 +966,15 @@ Q2完成率下滑的主要原因是原材料供应链出现延迟……
 - 与 FastAPI async 框架配合，避免阻塞事件循环
 - Alembic 管理数据库迁移，版本化 Schema 变更
 
-**BGE-Reranker（Phase 2）**
-- Cross-Encoder 延迟随候选数量线性增长，粗召回控制在 20-50 条
-- Phase 2 引入，Phase 1 仅使用向量检索
+**bge-reranker-large（自部署）**
+- 自部署推理服务，通过标准 `/v1/rerank` API 调用（兼容 Jina/Cohere 风格接口）
+- 请求参数：`{ model, query, documents, top_n, return_documents }`
+- 响应字段：`{ id, results: [{ index, relevance_score, document }], model, usage }`
+- 仅在 `/api/v1/retrieve` 接口中可选开启（`use_reranker` 参数），query/RAG 流程不经过
+- 开启时内部按 `top_k × RERANK_FETCH_MULTIPLIER`（默认 3）扩大召回，reranker 精排后输出 `top_k` 条
+- 调用时机在 chunk merge 之后，对完整 chunk 内容评分
+- 服务不可用时降级返回原始检索结果，不中断请求
+- 配置通过 `.env` 管理：`RERANK_API_URL`、`RERANK_API_KEY`、`RERANK_MODEL`、`RERANK_FETCH_MULTIPLIER`
 
 **依赖注入**
 - 使用 FastAPI `app.state` 手动组装，在 `main.py` 中实例化所有组件

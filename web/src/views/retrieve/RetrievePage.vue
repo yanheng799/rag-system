@@ -36,6 +36,19 @@
         <a-radio-button value="bm25">BM25</a-radio-button>
       </a-radio-group>
       <a-input-number v-model:value="topK" :min="1" :max="50" style="width: 100px" addon-before="Top" />
+      <div class="reranker-control">
+        <a-switch v-model:checked="useReranker" size="small" />
+        <span class="reranker-label">重排序</span>
+        <a-input-number
+          v-if="useReranker"
+          v-model:value="rerankTopN"
+          :min="1"
+          :max="50"
+          style="width: 80px"
+          size="small"
+          addon-before="N"
+        />
+      </div>
       <a-input
         v-model:value="question"
         placeholder="输入检索内容"
@@ -74,6 +87,7 @@
           <a-tag v-if="chunk.scores.vector_score > 0">向量: {{ chunk.scores.vector_score.toFixed(4) }}</a-tag>
           <a-tag v-if="chunk.scores.bm25_score > 0">BM25: {{ chunk.scores.bm25_score.toFixed(4) }}</a-tag>
           <a-tag v-if="chunk.scores.rrf_score != null" color="green">RRF: {{ chunk.scores.rrf_score.toFixed(4) }}</a-tag>
+          <a-tag v-if="chunk.scores.rerank_score != null" color="orange">重排: {{ chunk.scores.rerank_score.toFixed(4) }}</a-tag>
         </div>
         <div
           class="chunk-text markdown-body"
@@ -105,7 +119,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { retrieveChunks, type RetrieveResponse } from '@/api/retrieve'
 import { listDatasets, type DatasetResponse } from '@/api/datasets'
 import { listDocuments, type DocumentListItem } from '@/api/documents'
@@ -113,12 +127,13 @@ import { renderMarkdown } from '@/utils/markdown'
 import { resolveImageUrl } from '@/utils/imageAuth'
 import { SearchOutlined } from '@ant-design/icons-vue'
 
-const router = useRouter()
 const route = useRoute()
 
 const question = ref('')
 const searchMode = ref<'vector' | 'bm25' | 'hybrid'>('hybrid')
 const topK = ref(10)
+const useReranker = ref(false)
+const rerankTopN = ref(5)
 const loading = ref(false)
 const result = ref<RetrieveResponse | null>(null)
 const expandedChunks = ref(new Set<string>())
@@ -191,6 +206,8 @@ async function handleRetrieve() {
       search_mode: searchMode.value,
       dataset_ids: selectedDatasetIds.value.length > 0 ? selectedDatasetIds.value : undefined,
       doc_ids: selectedDocIds.value.length > 0 ? selectedDocIds.value : undefined,
+      use_reranker: useReranker.value,
+      rerank_top_n: rerankTopN.value,
     })
     // 解析图片 URL（带认证的 blob URL）
     for (const chunk of result.value.chunks) {
@@ -255,6 +272,19 @@ onMounted(async () => {
 
 .mode-group {
   flex-shrink: 0;
+}
+
+.reranker-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.reranker-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
 .result-meta {

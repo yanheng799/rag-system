@@ -18,11 +18,11 @@ from src.orchestration.prompt_builder import PromptBuilder
 from src.orchestration.query_rewriter import QueryRewriter
 from src.retrieval.bm25_search import BM25Searcher
 from src.retrieval.hybrid_search import HybridSearcher
+from src.retrieval.reranker import RerankerClient
 from src.retrieval.vector_search import VectorSearcher
 from src.storage.milvus_store import MilvusStore
 from src.storage.oss_store import OSSStore
 from src.storage.pg_store import PgStore
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,6 +85,9 @@ async def lifespan(app: FastAPI):
         query_rewriter=query_rewriter,
     )
 
+    # Reranker（仅配置了 API URL 时启用）
+    reranker_client = RerankerClient() if settings.rerank_api_url else None
+
     # 组件注入到 app.state
     app.state.pg_store = pg_store
     app.state.milvus_store = milvus_store
@@ -96,6 +99,7 @@ async def lifespan(app: FastAPI):
     app.state.llm_client = llm_client
     app.state.query_rewriter = query_rewriter
     app.state.orchestrator = orchestrator
+    app.state.reranker_client = reranker_client
 
     logger.info("RAG 系统初始化完成")
 
@@ -226,6 +230,7 @@ if __name__ == "__main__":
 
 # Serve built frontend (production / Docker)
 from pathlib import Path
+
 from fastapi.staticfiles import StaticFiles
 
 _frontend_dist = Path(__file__).resolve().parent.parent / "web" / "dist"

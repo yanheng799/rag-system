@@ -26,9 +26,17 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
     """
     检索接口：绕过 LLM，直接返回检索分块结果。
     支持 vector / bm25 / hybrid 三种检索模式。
+    可选启用 Reranker 重排序。
     """
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
+
+    # Reranker 检查
+    reranker_client = None
+    if body.use_reranker:
+        reranker_client = getattr(request.app.state, "reranker_client", None)
+        if reranker_client is None:
+            raise HTTPException(status_code=503, detail="Reranker 服务未配置")
 
     # 根据 search_mode 选择检索器
     searcher = getattr(request.app.state, f"{body.search_mode}_searcher", None)
@@ -37,7 +45,23 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
 
     start_time = time.time()
     org_id = user.get("org_id", "") or ""
-    logger.info("检索请求: question='%s', mode=%s, top_k=%d, org_id=%s", body.question[:80], body.search_mode, body.top_k, org_id)
+
+    # 开启 reranker 时，扩大检索召回量
+    fetch_top_k = body.top_k
+    if reranker_client:
+        from src.config.settings import settings
+
+        fetch_top_k = body.top_k * settings.rerank_fetch_multiplier
+
+    logger.info(
+        "检索请求: question='%s', mode=%s, top_k=%d, fetch_top_k=%d, reranker=%s, org_id=%s",
+        body.question[:80],
+        body.search_mode,
+        body.top_k,
+        fetch_top_k,
+        body.use_reranker,
+        org_id,
+    )
 
     # 查询改写
     query_rewriter = getattr(request.app.state, "query_rewriter", None)
@@ -71,7 +95,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
 
         accumulated: dict[str, tuple[RetrievedChunk, float]] = {}
         for q in queries:
-            results = searcher.search(question=q, top_k=body.top_k, filters=filters)
+            results = searcher.search(question=q, top_k=fetch_top_k, filters=filters)
             logger.info("子查询 '%s' → %d 条结果", q[:30], len(results))
             for chunk in results:
                 cid = chunk.metadata.chunk_id
@@ -81,22 +105,52 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
                 else:
                     accumulated[cid] = (chunk, chunk.score)
         sorted_results = sorted(accumulated.values(), key=lambda x: x[1], reverse=True)
-        chunks = [chunk for chunk, _ in sorted_results[:body.top_k]]
-        for chunk, score in sorted_results[:body.top_k]:
+        chunks = [chunk for chunk, _ in sorted_results[:fetch_top_k]]
+        for chunk, score in sorted_results[:fetch_top_k]:
             chunk.score = score
     else:
         chunks = searcher.search(
             question=body.question,
-            top_k=body.top_k,
+            top_k=fetch_top_k,
             filters=filters,
         )
-    retrieval_ms = int((time.time() - start_time) * 1000)
     logger.info(
-        "检索完成: %d 条结果, 耗时=%dms, top_scores=%s",
+        "检索完成: %d 条结果, top_scores=%s",
         len(chunks),
-        retrieval_ms,
         [round(c.score, 4) for c in chunks[:5]],
     )
+
+    # Reranker 重排序
+    if reranker_client and chunks:
+        # 保存原始检索分数，用于响应中 rrf_score 展示
+        original_scores = {id(c): c.score for c in chunks}
+        documents = [c.full_text for c in chunks]
+        rerank_results = reranker_client.rerank(
+            query=body.question,
+            documents=documents,
+            top_n=body.rerank_top_n,
+        )
+        if rerank_results:
+            reranked_chunks = []
+            for rr in rerank_results:
+                chunk = chunks[rr.index]
+                chunk.rerank_score = rr.relevance_score
+                chunk.score = rr.relevance_score
+                reranked_chunks.append(chunk)
+            chunks = reranked_chunks
+            logger.info("Rerank 精排完成: %d → %d 条", len(documents), len(chunks))
+        else:
+            # 降级：reranker 返回空，截断到 top_k
+            logger.warning("Reranker 降级，使用原始检索排序")
+            chunks = chunks[: body.top_k]
+    else:
+        chunks = chunks[: body.top_k]
+
+    # 构建 rrf_score 映射（hybrid + reranker 场景下保留原始 RRF 分数）
+    rrf_score_map = {id(c): original_scores.get(id(c), 0.0) for c in chunks} if reranker_client else {}
+
+    retrieval_ms = int((time.time() - start_time) * 1000)
+    logger.info("请求完成: %d 条结果, 耗时=%dms", len(chunks), retrieval_ms)
 
     pg_store = request.app.state.pg_store
 
@@ -121,7 +175,8 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
         scores = ChunkScores(
             vector_score=chunk.vector_score,
             bm25_score=chunk.bm25_score,
-            rrf_score=chunk.score if body.search_mode == "hybrid" else None,
+            rrf_score=rrf_score_map.get(id(chunk)) if rrf_score_map else (chunk.score if body.search_mode == "hybrid" else None),
+            rerank_score=chunk.rerank_score if body.use_reranker and chunk.rerank_score else None,
         )
 
         debug_chunks.append(

@@ -147,7 +147,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
 import {
   PlusOutlined,
   EditOutlined,
@@ -282,7 +281,7 @@ function parseUrlIds(param: string | string[] | undefined): string[] {
   return [param]
 }
 
-async function handleSend(e?: { shiftKey?: boolean }) {
+async function handleSend(e?: { shiftKey?: boolean; preventDefault?: () => void }) {
   if (e?.shiftKey) return
   e?.preventDefault?.()
 

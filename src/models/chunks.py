@@ -103,6 +103,7 @@ class RetrievedChunk:
     score: float = 0.0
     vector_score: float = 0.0
     bm25_score: float = 0.0
+    rerank_score: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -113,4 +114,5 @@ class RetrievedChunk:
             "score": self.score,
             "vector_score": self.vector_score,
             "bm25_score": self.bm25_score,
+            "rerank_score": self.rerank_score,
         }

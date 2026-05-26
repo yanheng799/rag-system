@@ -7,6 +7,10 @@
       <div class="detail-info" v-if="dataset">
         <h1 class="detail-name">{{ dataset.name }}</h1>
         <p class="detail-desc" v-if="dataset.description">{{ dataset.description }}</p>
+        <div class="detail-actions">
+          <a-button type="text" size="small" @click="openEditModal"><EditOutlined /> 编辑</a-button>
+          <a-button type="text" size="small" danger @click="confirmDeleteDataset"><DeleteOutlined /> 删除</a-button>
+        </div>
       </div>
     </div>
 
@@ -216,7 +220,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { UploadOutlined, SettingOutlined, InfoCircleOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined, AlignLeftOutlined, ReadOutlined, ColumnWidthOutlined, FileTextOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined, SettingOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, EditOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined, AlignLeftOutlined, ReadOutlined, ColumnWidthOutlined, FileTextOutlined, MessageOutlined } from '@ant-design/icons-vue'
 import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
@@ -337,17 +341,8 @@ async function fetchDocs() {
   try {
     const res = await listDocuments({ dataset_id: datasetId, size: 100 })
     docs.value = res.items.map((d) => ({
-      doc_id: d.doc_id,
-      filename: d.filename,
-      status: d.status,
-      error_msg: d.error_msg,
-      file_size: d.file_size,
-      file_type: d.file_type,
-      chunk_count: d.chunk_count,
-      chunk_options: d.chunk_options,
-      uploaded_at: d.uploaded_at,
-      updated_at: d.updated_at,
-    }))
+      ...d,
+    })) as DocumentStatusResponse[]
   } catch (e: unknown) {
     message.error((e as Error).message)
   } finally {
@@ -371,8 +366,7 @@ async function handleUpload(options: { file: File; onSuccess?: () => void; onErr
   uploadQueue.value.push(queueItem)
   uploading.value = true
   try {
-    const res = await uploadDocuments([options.file], datasetId)
-    const uploaded = Array.isArray(res) ? res : res.data
+    const uploaded = await uploadDocuments([options.file], datasetId)
     for (const u of uploaded) {
       docs.value.unshift({
         doc_id: u.doc_id,
@@ -381,6 +375,8 @@ async function handleUpload(options: { file: File; onSuccess?: () => void; onErr
         error_msg: null,
         file_size: options.file.size,
         file_type: options.file.name.split('.').pop() || null,
+        raw_file_url: null,
+        dataset_id: datasetId,
         chunk_count: 0,
         chunk_options: null,
         uploaded_at: u.uploaded_at,
@@ -596,6 +592,12 @@ onUnmounted(stopPolling)
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   margin-top: var(--space-1);
+}
+
+.detail-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 .compact-uploader :deep(.ant-upload-drag) {
