@@ -179,9 +179,6 @@ class PDFParser(BaseParser):
             for line in block["lines"]:
                 line_bbox = tuple(line["bbox"])
 
-                if hf_zones and is_in_header_footer(line_bbox, hf_zones):
-                    continue
-
                 line_text = ""
                 max_font_size = 0.0
                 is_bold = False
@@ -195,6 +192,9 @@ class PDFParser(BaseParser):
 
                 line_text = line_text.strip()
                 if not line_text:
+                    continue
+
+                if hf_zones and is_in_header_footer(line_bbox, hf_zones, text=line_text):
                     continue
 
                 if self._is_page_number(line_text, line_bbox, page_height):
@@ -357,7 +357,8 @@ class PDFParser(BaseParser):
                 continue
             for line in block["lines"]:
                 line_bbox = tuple(line["bbox"])
-                if hf_zones and is_in_header_footer(line_bbox, hf_zones):
+                line_text = "".join(s["text"] for s in line["spans"]).strip()
+                if hf_zones and is_in_header_footer(line_bbox, hf_zones, text=line_text):
                     continue
                 for span in line["spans"]:
                     text = span["text"].strip()

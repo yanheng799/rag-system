@@ -41,7 +41,7 @@ def detect_header_footer_zones(
     仅在页面顶部 8% 和底部 10% 范围内搜索跨页重复的文本行。
 
     Returns:
-        [(y_min, y_max), ...] — 应被过滤的 y 坐标区间列表
+        [(y_min, y_max, {norm_texts}), ...] — 应被过滤的 y 坐标区间 + 归一化文本集合
     """
     if len(doc) < min_repeat:
         return []
@@ -51,7 +51,7 @@ def detect_header_footer_zones(
         scan_pages = min(scan_pages, max_pages)
 
     page_height = doc[0].rect.height
-    y_tolerance = page_height * 0.02  # 2 % 页面高度
+    y_tolerance = page_height * 0.01  # 1 % 页面高度
     header_limit = page_height * 0.08  # 顶部 8%
     footer_limit = page_height * 0.90  # 底部 10%
 
@@ -102,35 +102,47 @@ def detect_header_footer_zones(
             y_buckets.append((y, [item]))
 
     # 识别重复行：在每个 y 桶内，按归一化文本二次分组
-    zones: list[tuple[float, float]] = []
+    zones: list[tuple[float, float, frozenset[str]]] = []
     for _avg_y, items in y_buckets:
         by_norm: dict[str, list[tuple[int, float, str, str]]] = defaultdict(list)
         for it in items:
             by_norm[it[2]].append(it)
 
-        for _norm, norm_items in by_norm.items():
+        for norm, norm_items in by_norm.items():
             unique_pages = {it[0] for it in norm_items}
             if len(unique_pages) < min_repeat:
                 continue
 
             # 归一化文本在多页同一 y 坐标出现 → 页眉/页脚
             y_min = min(it[1] for it in norm_items)
-            y_max = max(it[1] for it in norm_items) + 16
-            zones.append((y_min, y_max))
+            y_max = max(it[1] for it in norm_items) + 8
+            zones.append((y_min, y_max, frozenset({norm})))
 
     if zones:
-        logger.info("检测到 %d 个页眉/页脚区间: %s", len(zones), zones)
+        logger.info("检测到 %d 个页眉/页脚区间: %s", len(zones), [(z[0], z[1]) for z in zones])
 
     return zones
 
 
 def is_in_header_footer(
     bbox: tuple,
-    zones: list[tuple[float, float]],
+    zones: list[tuple[float, float, frozenset[str]]],
+    text: str = "",
 ) -> bool:
-    """判断元素是否位于页眉 / 页脚区间内。"""
+    """判断元素是否位于页眉 / 页脚区间内。
+
+    除了 y 坐标匹配外，还需验证该文本的归一化形式
+    在 zone 的已知页眉/页脚文本集合中出现，避免章节标题
+    因 y 坐标恰好落在 zone 范围内而被误杀。
+    """
     y0 = bbox[1]
-    return any(z_min <= y0 <= z_max for z_min, z_max in zones)
+    norm = _normalize_text(text) if text else ""
+    for z_min, z_max, norm_set in zones:
+        if not (z_min <= y0 <= z_max):
+            continue
+        if norm and len(norm) >= 2 and norm in norm_set:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------

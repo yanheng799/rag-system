@@ -66,14 +66,14 @@ class TestHeaderFooterDetection:
         zones = detect_header_footer_zones(doc)
         doc.close()
         assert len(zones) > 0
-        assert any(z[0] < 50 for z in zones)
+        assert any(z[0] < 50 for z in zones), f"No header zone found in {zones}"
 
     def test_tower_detail_has_footer(self):
         """塔位明细表应检测到页脚"""
         doc = fitz.open("tests/data/塔位明细表.pdf")
         zones = detect_header_footer_zones(doc)
         doc.close()
-        assert any(z[0] > 700 for z in zones)
+        assert any(z[0] > 700 for z in zones), f"No footer zone found in {zones}"
 
     def test_tower_detail_header_filtered(self):
         """解析后不应包含页眉内容"""
@@ -91,10 +91,12 @@ class TestHeaderFooterDetection:
         assert len(zones) == 0
 
     def test_is_in_header_footer(self):
-        zones = [(28, 44), (762, 778)]
-        assert is_in_header_footer((100, 28, 300, 44), zones) is True
-        assert is_in_header_footer((100, 762, 300, 778), zones) is True
-        assert is_in_header_footer((100, 100, 300, 120), zones) is False
+        zones = [(28, 44, frozenset({"页眉文本"})), (762, 778, frozenset({"页脚文本"}))]
+        assert is_in_header_footer((100, 28, 300, 44), zones, text="页眉文本") is True
+        assert is_in_header_footer((100, 762, 300, 778), zones, text="页脚文本") is True
+        assert is_in_header_footer((100, 100, 300, 120), zones, text="正文内容") is False
+        # 文本不匹配 → 即使 y 在 zone 内也不应误杀
+        assert is_in_header_footer((100, 28, 300, 44), zones, text="章节标题") is False
 
 
 class TestFullWidthTable:
