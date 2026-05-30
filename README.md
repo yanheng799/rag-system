@@ -10,7 +10,7 @@
 | Web 框架 | FastAPI + Uvicorn |
 | 前端 | Vue 3 + Ant Design Vue + TypeScript |
 | LLM | Qwen（DashScope API） |
-| Embedding | text-embedding-v2（1024 维） |
+| Embedding | text-embedding-v2（1024 维），[模型仓库](https://github.com/yanheng799/rag-embedding) |
 | 向量数据库 | Milvus 2.6 |
 | 关系数据库 | PostgreSQL 16 |
 | 对象存储 | MinIO |
