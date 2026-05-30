@@ -41,6 +41,9 @@ logs/
 web/dist
 web/node_modules
 
+# 测试数据
+tests/data/
+
 # 本地工作目录
 team-spec/
 tmp/
