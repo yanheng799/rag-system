@@ -1,4 +1,4 @@
-# RAG 问答系统
+# RAG 检索增强生成
 
 RAG（检索增强生成）系统，支持 PDF、Word、Excel、TXT、Markdown、CSV 文档的上传、解析、检索与智能问答。
 
