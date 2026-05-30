@@ -98,19 +98,6 @@ docker/
 | `docker compose -f docker/docker-compose.full.yml up -d` | 启动全部服务 |
 | `docker compose -f docker/docker-compose.app.yml build` | 重新构建镜像 |
 
-## API 概览
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/documents` | 上传文档（multipart/form-data） |
-| POST | `/api/v1/query` | 问答查询，返回答案 + 来源 + 图片 URL |
-| WebSocket | `/api/v1/query/ws` | 流式问答 |
-| POST | `/api/v1/retrieve` | 检索接口，支持 vector/BM25/hybrid 策略 |
-| GET | `/api/v1/documents` | 文档列表 |
-| GET | `/api/v1/chunks` | 分块列表 |
-| GET | `/api/v1/datasets` | 数据集列表 |
-| GET | `/api/v1/images/{path}` | 图片代理 |
-
 ## 项目结构
 
 ```
