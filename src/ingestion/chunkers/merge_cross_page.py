@@ -47,6 +47,34 @@ def _split_header_body(md_content: str) -> tuple[str, list[str]]:
     return header, body
 
 
+def _row_cells(row: str) -> list[str]:
+    """从 Markdown 表格行提取单元格内容（去首尾 |，按 | 切分并去空白）。"""
+    s = row.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _continuation_body_rows(main_content: str, cont_content: str) -> list[str]:
+    """计算续表(cont)要追加到主表(main)的数据行。
+
+    续表 Markdown 结构恒为 [row0, 分隔行, 数据...]（_extract_table_text 固定在 row0
+    后插入分隔行）。因此不能无条件把 row0 当作重复表头丢弃：
+    - 若 row0 与主表表头行单元格完全相同 → 续页重复了表头，丢弃 row0（仅保留数据行）；
+    - 否则 row0 本身就是真实数据 → 保留它，仅去掉续表的分隔行。
+    """
+    main_lines = main_content.strip().split("\n")
+    main_header = main_lines[0] if main_lines else ""
+    cont_lines = cont_content.strip().split("\n")
+    cont_row0 = cont_lines[0] if cont_lines else ""
+    _, cont_body = _split_header_body(cont_content)  # 续表分隔行之后的数据行
+    if main_header.strip() and _row_cells(cont_row0) == _row_cells(main_header):
+        return cont_body  # 续页重复表头，丢弃 row0
+    return [cont_row0, *cont_body]  # row0 为真实数据，保留
+
+
 def merge_cross_page_tables(
     elements: list[ParsedElement],
     page_sizes: dict[int, tuple[float, float]],
@@ -91,10 +119,10 @@ def merge_cross_page_tables(
             if cols_a == 0 or cols_b == 0 or cols_a != cols_b:
                 continue
 
-            # 合并：移除表 B 的表头，数据行追加到表 A
-            _, body_b = _split_header_body(elem_b.content)
+            # 合并：续表数据行追加到表 A（续页重复表头去重，首行数据保留）
+            rows_to_add = _continuation_body_rows(elem_a.content, elem_b.content)
             merged_content = elem_a.content.rstrip()
-            for row in body_b:
+            for row in rows_to_add:
                 if row.strip():
                     merged_content += "\n" + row
 
@@ -229,10 +257,10 @@ def merge_cross_column_tables(
                 if cols_a == 0 or cols_b == 0 or cols_a != cols_b:
                     continue
 
-                # 合并：将右表数据行追加到左表
-                _, body_b = _split_header_body(elem_b.content)
+                # 合并：右表数据行追加到左表（重复表头去重，首行数据保留）
+                rows_to_add = _continuation_body_rows(elem_a.content, elem_b.content)
                 merged_content = elem_a.content.rstrip()
-                for row in body_b:
+                for row in rows_to_add:
                     if row.strip():
                         merged_content += "\n" + row
 
