@@ -7,7 +7,7 @@ from collections import Counter
 
 import fitz  # pymupdf
 
-from src.ingestion.chunkers.heading_patterns import is_heading_by_pattern, is_heading_combined
+from src.ingestion.chunkers.heading_patterns import is_bare_number_heading, is_heading_by_pattern, is_heading_combined
 from src.ingestion.chunkers.layout_detector import (
     detect_header_footer_zones,
     detect_page_layout,
@@ -260,12 +260,12 @@ class PDFParser(BaseParser):
                         )
                     )
                 else:
-                    elements.append(self._merge_line_group(group, page_num))
+                    elements.append(self._merge_line_group(group, page_num, body_font_size))
 
         return elements
 
     @staticmethod
-    def _merge_line_group(group: list[dict], page_num: int) -> ParsedElement:
+    def _merge_line_group(group: list[dict], page_num: int, body_font_size: float = 0.0) -> ParsedElement:
         """将同类型的行数据列表合并为一个 ParsedElement"""
         merged_text = " ".join(ld["text"] for ld in group)
         merged_bbox = (
@@ -277,6 +277,10 @@ class PDFParser(BaseParser):
         max_font = max(ld["font_size"] for ld in group)
         any_bold = any(ld["bold"] for ld in group)
         elem_type = group[0]["elem_type"]
+        # 合并元素类型取自首行（如 "1"+"线路概况" 首行为 text）。若合并后内容构成
+        # "数字+空格"编号标题且加粗，则升级为 title，否则此类章节标题无法被识别
+        if elem_type != "title" and is_bare_number_heading(merged_text, max_font, any_bold, body_font_size):
+            elem_type = "title"
 
         return ParsedElement(
             elem_type=elem_type,
@@ -336,6 +340,10 @@ class PDFParser(BaseParser):
             is_heading_style = ratio > 1.3 or (ratio > 1.15 and is_bold)
             # 有基准字号时，仅用正则做补充（不再用绝对字号阈值）
             is_heading = is_heading_style or is_heading_by_pattern(text)
+            # "数字+空格"编号标题(如 "3 项目管理")需样式门控，避免正文
+            # "16 标段、17 标段接头塔…" 以数字开头被误判为标题
+            if not is_heading and is_bare_number_heading(text, font_size, is_bold, body_font_size):
+                is_heading = True
         else:
             is_heading = is_heading_combined(text, font_size, is_bold)
 

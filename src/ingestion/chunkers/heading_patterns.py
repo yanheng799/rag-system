@@ -12,8 +12,6 @@ COMPILED_HEADING_PATTERNS: list[re.Pattern] = [
     re.compile(r"^第[一二三四五六七八九十百千\d]+[条款]\s*.*"),
     # 编号标题（如 "3.2 排序算法"、"3、施工要求"）
     re.compile(r"^\d+[\.\、]\s*\S+.*"),
-    # 一级编号标题（如 "3 项目管理"）
-    re.compile(r"^\d+\s+\S+.*"),
     # 子编号标题（如 "3.2.1 数据采集"）
     re.compile(r"^\d+\.\d+\s+\S+.*"),
     # 英文章节
@@ -34,6 +32,31 @@ def is_heading_by_pattern(text: str) -> bool:
     if not text or len(text) > _MAX_HEADING_LENGTH:
         return False
     return any(pat.match(text) for pat in COMPILED_HEADING_PATTERNS)
+
+
+# "数字+空格+文字"形式的编号标题（如 "3 项目管理"）
+# 这类格式与正文（如 "16 标段、17 标段接头塔…"）仅凭文本无法区分，故从
+# is_heading_by_pattern 移出，改为下方样式门控判定，避免正文被误判为标题。
+_BARE_NUMBER_HEADING: re.Pattern = re.compile(r"^\d+\s+\S")
+
+
+def is_bare_number_heading(
+    text: str,
+    font_size: float,
+    is_bold: bool,
+    body_font_size: float,
+) -> bool:
+    """识别 "数字+空格+文字" 编号标题（如 "3 项目管理"），需样式门控。
+
+    仅当文本加粗、或字号明显大于正文基准（> 5%）时才认定为标题，避免正文行
+    （如 "16 标段、17 标段接头塔（5L086、5R087）为终点确定前进方向…"）
+    因以数字+空格开头而被误判为标题、进而触发分块边界。
+    """
+    if not _BARE_NUMBER_HEADING.match(text.strip()):
+        return False
+    if is_bold:
+        return True
+    return body_font_size > 0 and font_size > body_font_size * 1.05
 
 
 def is_heading_combined(text: str, font_size: float, is_bold: bool) -> bool:
