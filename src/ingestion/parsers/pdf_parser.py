@@ -197,8 +197,9 @@ class PDFParser(BaseParser):
                 if hf_zones and is_in_header_footer(line_bbox, hf_zones, text=line_text):
                     continue
 
-                if self._is_page_number(line_text, line_bbox, page_height):
-                    continue
+                # 页码不再用独立的"位置区域+短数字"启发式判断（会误杀顶部页边距里的
+                # 章节编号）；页码只存在于页眉/页脚区域内，由上面的 is_in_header_footer
+                # 区域整体剔除承担。
 
                 elem_type = self._detect_text_type(line_text, max_font_size, is_bold, body_font_size)
                 line_data_list.append(
@@ -376,16 +377,6 @@ class PDFParser(BaseParser):
 
         # 按字符数加权，取众数
         return size_counter.most_common(1)[0][0]
-
-    def _is_page_number(self, text: str, bbox: tuple, page_height: float) -> bool:
-        """判断文本是否为页码（页面边缘区域的独立短数字或 N / M 格式）"""
-        import re
-
-        y0 = bbox[1]
-        # 页码通常在顶部 8% 或底部 10%
-        return (y0 < page_height * 0.08 or y0 > page_height * 0.90) and (
-            (text.isdigit() and len(text) <= 3) or bool(re.match(r"^\d+\s*/\s*\d+$", text))
-        )
 
     def _extract_images(
         self,
