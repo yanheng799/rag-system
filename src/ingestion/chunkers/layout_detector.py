@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
-from collections import defaultdict
+from collections import Counter
 
 import fitz
 
@@ -35,88 +36,82 @@ def detect_header_footer_zones(
     doc: fitz.Document,
     min_repeat: int = 3,
     max_pages: int | None = None,
-) -> list[tuple[float, float]]:
+    scan_n: int = 8,
+) -> list[tuple[float, float, frozenset[str], bool]]:
     """检测文档中页眉 / 页脚的 y 坐标区间。
 
-    仅在页面顶部 8% 和底部 10% 范围内搜索跨页重复的文本行。
+    策略:取前 scan_n 页,读取每页顶部(页眉)和底部(页脚)的"第一行",
+    若文本完全相同、或文本中的数字呈常数步长递增(差分恒定且非零),
+    则判定为页眉 / 页脚区间。跳过无候选行的页(封面 / 空白页)。
+
+    Args:
+        doc: pymupdf 文档
+        min_repeat: 绝对最少命中页数(同时作为短文档保护阈值)
+        max_pages: 扫描页数上限(pdf_parser 切片解析时传入)
+        scan_n: 前 N 页的 N(默认 8,覆盖封面 + 目录 + 若干正文页)
 
     Returns:
-        [(y_min, y_max, {norm_texts}), ...] — 应被过滤的 y 坐标区间 + 归一化文本集合
+        [(y_min, y_max, {norm_texts}, is_numeric), ...] — 应被过滤的 y 坐标区间、
+        归一化文本集合，以及是否为纯数字页码区（is_numeric=True 时区域内短数字行直接剔除）
     """
     if len(doc) < min_repeat:
         return []
 
-    scan_pages = len(doc)
+    effective_n = min(scan_n, len(doc))
     if max_pages is not None:
-        scan_pages = min(scan_pages, max_pages)
+        effective_n = min(effective_n, max_pages)
 
     page_height = doc[0].rect.height
-    y_tolerance = page_height * 0.01  # 1 % 页面高度
     header_limit = page_height * 0.08  # 顶部 8%
     footer_limit = page_height * 0.90  # 底部 10%
 
-    # 仅收集页面顶部和底部边缘、且不在表格内的文字行
-    all_lines: list[tuple[int, float, str, str]] = []  # (page, y, norm, raw)
-    for pn in range(scan_pages):
+    # 收集每页 header / footer 候选行:(page, y0, raw_text)
+    header_candidates: list[tuple[int, float, str]] = []
+    footer_candidates: list[tuple[int, float, str]] = []
+
+    for pn in range(effective_n):
         page = doc[pn]
-        # 收集本页表格区域
         try:
             table_bboxes = [tuple(t.bbox) for t in page.find_tables()]
         except Exception:
             logger.debug("find_tables 失败: page %d，跳过表格过滤", pn)
             table_bboxes = []
+
+        header_lines: list[tuple[float, str]] = []  # (y0, text) 候选区域内的行
+        footer_lines: list[tuple[float, str]] = []
         blocks = page.get_text("dict")["blocks"]
         for block in blocks:
             if block["type"] != 0:
                 continue
             for line in block["lines"]:
                 text = "".join(s["text"] for s in line["spans"]).strip()
-                if not text or len(text) < 3:
+                if not text:
                     continue
-                y0 = line["bbox"][1]
-                # 仅保留页眉/页脚候选区域
-                if y0 > header_limit and y0 < footer_limit:
+                # 页码常为 1~3 位纯数字，不能被通用最小长度过滤掉
+                if len(text) < 3 and not text.isdigit():
                     continue
-                # 跳过表格内的行
                 line_bbox = tuple(line["bbox"])
                 if _bbox_in_table(line_bbox, table_bboxes):
                     continue
-                norm = _normalize_text(text)
-                if len(norm) < 2:
-                    continue
-                all_lines.append((pn, y0, norm, text))
+                y0 = line["bbox"][1]
+                if y0 < header_limit:
+                    header_lines.append((y0, text))
+                elif y0 > footer_limit:
+                    footer_lines.append((y0, text))
 
-    # 按 y 坐标分桶
-    y_buckets: list[tuple[float, list[tuple[int, float, str, str]]]] = []
-    for item in all_lines:
-        pn, y, norm, text = item
-        placed = False
-        for i, (avg_y, items) in enumerate(y_buckets):
-            if abs(y - avg_y) <= y_tolerance:
-                items.append(item)
-                new_avg = sum(it[1] for it in items) / len(items)
-                y_buckets[i] = (new_avg, items)
-                placed = True
-                break
-        if not placed:
-            y_buckets.append((y, [item]))
+        # 页眉取 y 最小的第一行,页脚取 y 最大的第一行
+        if header_lines:
+            header_lines.sort(key=lambda x: x[0])
+            header_candidates.append((pn, header_lines[0][0], header_lines[0][1]))
+        if footer_lines:
+            footer_lines.sort(key=lambda x: x[0], reverse=True)
+            footer_candidates.append((pn, footer_lines[0][0], footer_lines[0][1]))
 
-    # 识别重复行：在每个 y 桶内，按归一化文本二次分组
     zones: list[tuple[float, float, frozenset[str]]] = []
-    for _avg_y, items in y_buckets:
-        by_norm: dict[str, list[tuple[int, float, str, str]]] = defaultdict(list)
-        for it in items:
-            by_norm[it[2]].append(it)
-
-        for norm, norm_items in by_norm.items():
-            unique_pages = {it[0] for it in norm_items}
-            if len(unique_pages) < min_repeat:
-                continue
-
-            # 归一化文本在多页同一 y 坐标出现 → 页眉/页脚
-            y_min = min(it[1] for it in norm_items)
-            y_max = max(it[1] for it in norm_items) + 8
-            zones.append((y_min, y_max, frozenset({norm})))
+    for candidates in (header_candidates, footer_candidates):
+        zone = _detect_zone_from_candidates(candidates, min_repeat)
+        if zone:
+            zones.append(zone)
 
     if zones:
         logger.info("检测到 %d 个页眉/页脚区间: %s", len(zones), [(z[0], z[1]) for z in zones])
@@ -124,21 +119,84 @@ def detect_header_footer_zones(
     return zones
 
 
+def _detect_zone_from_candidates(
+    candidates: list[tuple[int, float, str]],
+    min_repeat: int,
+) -> tuple[float, float, frozenset[str], bool] | None:
+    """对一组候选行(页眉或页脚)判定是否构成页眉 / 页脚区间。
+
+    阈值 threshold = max(min_repeat, ceil(V * 0.6)),V 为候选页数,
+    允许约 40% 的页偏离(如章节首页无页眉 / 表格页无页码)。
+
+    分支 A(优先):strip 后文本完全相同的页数 >= threshold。
+    分支 B:页码递增 —— 编号与页码呈常数偏移(number - page_index = 常数),
+    按偏移众数判定,容忍表格页等缺页造成的候选间隙(不依赖相邻候选差分恒定)。
+
+    Returns:
+        (y_min, y_max, {norm}, is_numeric) 或 None。
+        is_numeric 为 True 表示该区为纯数字页码区(归一化样本不足 2 字符)。
+    """
+    v = len(candidates)
+    if v < min_repeat:
+        return None
+    threshold = max(min_repeat, math.ceil(v * 0.6))
+
+    # 分支 A:文本完全相同
+    same_text, same_count = Counter(c[2].strip() for c in candidates).most_common(1)[0]
+    if same_count >= threshold:
+        hit = [c for c in candidates if c[2].strip() == same_text]
+        y_min = min(c[1] for c in hit)
+        y_max = max(c[1] for c in hit) + 8
+        norm = _normalize_text(same_text)
+        return (y_min, y_max, frozenset({norm}) if norm else frozenset(), len(norm) < 2)
+
+    # 分支 B:页码递增(number - page_index = 常数),按偏移众数判定,容忍缺页间隙
+    nums: list[tuple[int, int]] = []  # (page, number)
+    for pn, _y, text in candidates:
+        m = re.search(r"\d+", text)
+        if m:
+            nums.append((pn, int(m.group())))
+    if len(nums) >= threshold:
+        offset_counter: Counter[int] = Counter(n - pn for pn, n in nums)
+        dom_offset, dom_count = offset_counter.most_common(1)[0]
+        if dom_count >= threshold:
+            hit_pages = {pn for pn, n in nums if n - pn == dom_offset}
+            hit = [c for c in candidates if c[0] in hit_pages]
+            y_min = min(c[1] for c in hit)
+            y_max = max(c[1] for c in hit) + 8
+            sample = next(c[2] for c in candidates if c[0] in hit_pages)
+            norm = _normalize_text(sample)
+            return (y_min, y_max, frozenset({norm}) if norm else frozenset(), len(norm) < 2)
+
+    return None
+
+
 def is_in_header_footer(
     bbox: tuple,
-    zones: list[tuple[float, float, frozenset[str]]],
+    zones: list[tuple],
     text: str = "",
 ) -> bool:
     """判断元素是否位于页眉 / 页脚区间内。
 
-    除了 y 坐标匹配外，还需验证该文本的归一化形式
-    在 zone 的已知页眉/页脚文本集合中出现，避免章节标题
-    因 y 坐标恰好落在 zone 范围内而被误杀。
+    除 y 坐标匹配外，还需验证文本归一化形式落在 zone 的已知页眉/页脚文本集合中，
+    避免章节标题因 y 恰好落在 zone 范围内而被误杀。
+
+    纯数字页码区(zone 第 4 位 is_numeric=True)例外：区域内 1~3 位纯数字行
+    (即页码本身)直接剔除——页码归一化后为空，无法走文本匹配分支。
+    兼容历史 3 元组 zone(无 is_numeric 位，按文本匹配处理)。
     """
     y0 = bbox[1]
     norm = _normalize_text(text) if text else ""
-    for z_min, z_max, norm_set in zones:
+    stripped = text.strip() if text else ""
+    for zone in zones:
+        z_min, z_max, norm_set = zone[0], zone[1], zone[2]
+        is_numeric = zone[3] if len(zone) > 3 else False
         if not (z_min <= y0 <= z_max):
+            continue
+        if is_numeric:
+            # 页码区：区域内短数字行(页码)直接剔除
+            if stripped.isdigit() and len(stripped) <= 3:
+                return True
             continue
         if norm and len(norm) >= 2 and norm in norm_set:
             return True

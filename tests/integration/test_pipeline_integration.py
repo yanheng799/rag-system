@@ -130,6 +130,67 @@ class TestChunkBuilderIntegration:
         assert len(chunk.full_text) > 0
         assert chunk.metadata.chunk_type == "table"
 
+    def test_table_screenshot_index_unique_across_chunks(self):
+        """跨分块的表(含跨页续表)截图文件名应全局唯一，避免同页覆盖。
+
+        复现场景：表A 主表在 page4、续页在 page5；表B 主表也在 page5、续页在 page6。
+        若 table_index 都从 0 开始，表A 续页与表B 主表会落到同名 p5_t0 互相覆盖。
+        pipeline 通过 table_index_offset 让各表 index 全局递增即可避免。
+        """
+        from src.ingestion.parsers.base import ParsedElement
+
+        class _MockShot:
+            def __init__(self):
+                self.keys = []  # (page, table_index) 决定文件名
+
+            def capture_pdf_table(self, *, org_id, pdf_path, page_num, bbox, doc_id, table_index, **kw):
+                self.keys.append((page_num, table_index))
+                return f"oss://mock/p{page_num}_t{table_index}.png"
+
+        mock = _MockShot()
+        builder = ChunkBuilder(screenshot=mock, describer=TableDescriber())
+
+        table_a = ParsedElement(
+            elem_type="table",
+            content="| a |\n|---|\n| 1 |",
+            page=4,
+            bbox=(50, 400, 500, 800),
+            raw={"_merged_pages": [{"page": 5, "bbox": (50, 56, 500, 175)}]},
+        )
+        table_b = ParsedElement(
+            elem_type="table",
+            content="| b |\n|---|\n| 2 |",
+            page=5,
+            bbox=(50, 226, 500, 800),
+            raw={"_merged_pages": [{"page": 6, "bbox": (50, 56, 500, 337)}]},
+        )
+
+        # 模拟 pipeline：两个分块各含一张表，offset 递增
+        builder.build(
+            elements=[table_a],
+            doc_id="d",
+            source="s",
+            page=4,
+            chunk_index=0,
+            pdf_path="x.pdf",
+            table_index_offset=0,
+        )
+        builder.build(
+            elements=[table_b],
+            doc_id="d",
+            source="s",
+            page=5,
+            chunk_index=0,
+            pdf_path="x.pdf",
+            table_index_offset=1,
+        )
+
+        # 文件名键 (page, index) 必须全部唯一
+        assert len(mock.keys) == len(set(mock.keys)), f"截图文件名冲突: {mock.keys}"
+        # 表A续页(p5,t0) 与 表B主表(p5,t1) 不再同名
+        assert (5, 0) in mock.keys  # 表A 续页
+        assert (5, 1) in mock.keys  # 表B 主表
+
 
 class TestParserRegistryIntegration:
     """Parser 注册表集成测试"""

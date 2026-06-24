@@ -34,6 +34,7 @@ class ChunkBuilder:
         chunk_index: int,
         pdf_path: str | None = None,
         org_id: str = "",
+        table_index_offset: int = 0,
     ) -> MixedChunk:
         """
         将段落组组装为 MixedChunk。
@@ -42,12 +43,16 @@ class ChunkBuilder:
         - 文字元素：直接取 content，image_url=None
         - 表格元素：生成语义描述，如有截图服务则截图
         - 图片元素：使用已上传的 OSS 路径，content 为占位文本
+
+        table_index_offset: 截图文件名 {doc}_p{page}_t{index} 中的 index 基数。
+        由 pipeline 维护文档级全局序号传入，避免不同分块的表（及其续页）
+        因 index 都从 0 开始而落到同页同名、互相覆盖。
         """
         chunk_type = detect_chunk_type(elements)
         content_elements: list[ContentElement] = []
         image_urls: list[str] = []
         text_parts: list[str] = []
-        table_counter = 0
+        table_counter = table_index_offset
 
         for elem in elements:
             if elem.is_table:
@@ -58,7 +63,8 @@ class ChunkBuilder:
                 # 尝试截图（需要 PDF 文件路径和截图服务）
                 if self._screenshot and pdf_path and elem.bbox != (0, 0, 0, 0):
                     try:
-                        img_url = self._screenshot.capture_pdf_table(org_id=org_id,
+                        img_url = self._screenshot.capture_pdf_table(
+                            org_id=org_id,
                             pdf_path=pdf_path,
                             page_num=elem.page,
                             bbox=elem.bbox,
@@ -73,7 +79,8 @@ class ChunkBuilder:
                     if elem.raw and isinstance(elem.raw, dict):
                         for mp in elem.raw.get("_merged_pages", []):
                             try:
-                                mp_url = self._screenshot.capture_pdf_table(org_id=org_id,
+                                mp_url = self._screenshot.capture_pdf_table(
+                                    org_id=org_id,
                                     pdf_path=pdf_path,
                                     page_num=mp["page"],
                                     bbox=tuple(mp["bbox"]),
