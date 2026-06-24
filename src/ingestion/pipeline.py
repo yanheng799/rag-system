@@ -98,6 +98,7 @@ class IngestionPipeline:
 
             if chunk_options:
                 from src.api.schemas.documents import ChunkOptions
+
                 if isinstance(chunk_options, dict):
                     chunk_options = ChunkOptions(**chunk_options)
                 if chunk_options.strategy:
@@ -130,6 +131,9 @@ class IngestionPipeline:
             page_chunk_counters: dict[int, int] = {}
             # 按 page 计数图片索引，避免不同段落组的同名图片互相覆盖
             page_img_counters: dict[int, int] = {}
+            # 文档级表格序号：截图文件名 {doc}_p{page}_t{idx} 的 idx 基数，
+            # 保证跨分块的表（含跨页续表）截图文件名全局唯一，避免同页覆盖
+            table_seq = 0
 
             for para_group, group_id in paragraphs:
                 # 使用第一个元素的 page 作为 chunk 的 page
@@ -169,7 +173,10 @@ class IngestionPipeline:
                     chunk_index=chunk_index,
                     pdf_path=pdf_path,
                     org_id=org_id or "",
+                    table_index_offset=table_seq,
                 )
+                # 本组表格数累加到文档级序号，供下一组分块继续递增
+                table_seq += sum(1 for e in para_group if e.is_table)
                 chunk.metadata.group_id = group_id
                 chunks.append(chunk)
 
