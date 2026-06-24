@@ -162,7 +162,7 @@ class PDFParser(BaseParser):
         blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
 
         # 统计页面字号众数，作为正文基准字号
-        body_font_size = self._detect_body_font_size(blocks, page_height, hf_zones)
+        body_font_size = self._detect_body_font_size(blocks, page_height, hf_zones, table_bboxes)
 
         for block in blocks:
             if block["type"] != 0:  # 只处理文字块
@@ -353,16 +353,24 @@ class PDFParser(BaseParser):
             return "list_item"
         return "text"
 
-    @staticmethod
     def _detect_body_font_size(
+        self,
         blocks: list[dict],
         page_height: float,
         hf_zones: list | None = None,
+        table_bboxes: list | None = None,
     ) -> float:
-        """统计页面内字号众数，作为正文基准字号。"""
+        """统计页面内字号众数，作为正文基准字号。
+
+        排除表格区域内的文本——表格单元格常使用比正文更小的字号，若纳入统计会让
+        正文基准字号偏小，导致真正的正文被按"字号偏大"误判为标题。
+        """
         size_counter: Counter[float] = Counter()
         for block in blocks:
             if block["type"] != 0:
+                continue
+            # 排除表格区域内的文本，避免表格小字号污染正文基准
+            if table_bboxes and self._is_in_table(block["bbox"], table_bboxes):
                 continue
             for line in block["lines"]:
                 line_bbox = tuple(line["bbox"])
