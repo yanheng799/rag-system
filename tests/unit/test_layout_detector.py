@@ -202,6 +202,32 @@ class TestHeaderFooterDetection:
         doc.close()
         assert len(zones) == 1
 
+    def test_scan_n_covers_late_body_header(self):
+        """scan_n=15 覆盖前部含封面/目录的文档:正文页眉从第6页起,
+        8 页采样样本不足无法命中阈值,15 页可检出。
+
+        回归:施工图总说明书 前5页为封面/目录,正文页眉从 page6 起。
+        """
+        spec = [{"header": "CoverTitle"}] * 5 + [{"header": "RealHeader"}] * 10
+        doc = _make_pdf(spec)
+        zones = detect_header_footer_zones(doc)
+        doc.close()
+        assert any("RealHeader" in z[2] for z in zones), f"未检出正文页眉: {zones}"
+
+    def test_footer_limit_covers_page_number_near_line(self):
+        """页码 y 略低于 90% 线(落在 88%~90% 之间)仍能进 footer 候选区被检出。
+
+        回归:施工图总说明书 page6 页码 y≈0.898,被 0.90 线卡掉导致 footer 候选全空。
+        """
+        doc = fitz.open()
+        for i in range(5):
+            page = doc.new_page(width=595, height=842)
+            page.insert_text((50, 758), str(i + 1), fontsize=11)  # y0≈749,介于 0.88~0.90
+        zones = detect_header_footer_zones(doc)
+        doc.close()
+        assert len(zones) == 1
+        assert zones[0][3] is True  # 纯数字页码区
+
 
 class TestFullWidthTable:
     """全宽表格在双栏重排中的处理"""

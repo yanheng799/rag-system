@@ -36,7 +36,7 @@ def detect_header_footer_zones(
     doc: fitz.Document,
     min_repeat: int = 3,
     max_pages: int | None = None,
-    scan_n: int = 8,
+    scan_n: int = 15,
 ) -> list[tuple[float, float, frozenset[str], bool]]:
     """检测文档中页眉 / 页脚的 y 坐标区间。
 
@@ -48,7 +48,9 @@ def detect_header_footer_zones(
         doc: pymupdf 文档
         min_repeat: 绝对最少命中页数(同时作为短文档保护阈值)
         max_pages: 扫描页数上限(pdf_parser 切片解析时传入)
-        scan_n: 前 N 页的 N(默认 8,覆盖封面 + 目录 + 若干正文页)
+        scan_n: 前 N 页的 N(默认 15,覆盖封面 + 目录 + 多页正文)
+            8 页时若文档前部含较多封面/目录页,正文页眉样本不足无法命中阈值,
+            故放宽到 15 页以确保正文页眉/页脚有足够重复样本。
 
     Returns:
         [(y_min, y_max, {norm_texts}, is_numeric), ...] — 应被过滤的 y 坐标区间、
@@ -63,7 +65,7 @@ def detect_header_footer_zones(
 
     page_height = doc[0].rect.height
     header_limit = page_height * 0.08  # 顶部 8%
-    footer_limit = page_height * 0.90  # 底部 10%
+    footer_limit = page_height * 0.88  # 底部 12%（页码常贴着 90% 线，0.90 会把页码 y 卡在候选区外）
 
     # 收集每页 header / footer 候选行:(page, y0, raw_text)
     header_candidates: list[tuple[int, float, str]] = []
