@@ -8,44 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src.api.deps import get_current_user
+from src.api.routers._shared import resolve_filters
 from src.api.schemas.query import QueryRequest
 
 router = APIRouter(prefix="/api/v1", tags=["问答"])
 
 logger = logging.getLogger(__name__)
-
-
-async def resolve_filters(
-    pg_store,
-    dataset_ids,
-    doc_ids,
-    doc_names,
-    org_id: str | None = None,
-) -> dict | None:
-    """将 dataset_ids / doc_ids / doc_names 解析为 Milvus 过滤条件，按 org_id 限定范围"""
-    sets: list[set[str]] = []
-
-    if dataset_ids:
-        ids = await pg_store.get_doc_ids_by_dataset_ids(dataset_ids, org_id=org_id)
-        sets.append(set(ids))
-
-    if doc_ids:
-        sets.append(set(doc_ids))
-
-    if doc_names:
-        ids = await pg_store.get_doc_ids_by_filenames(doc_names, org_id=org_id)
-        sets.append(set(ids))
-
-    if not sets:
-        return None
-
-    result = sets[0]
-    for s in sets[1:]:
-        result &= s
-
-    if not result:
-        return None
-    return {"doc_id": sorted(result)}
 
 
 @router.post("/query", summary="问答接口（SSE 流式）")

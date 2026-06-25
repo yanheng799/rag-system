@@ -78,7 +78,7 @@ async def debug_retrieve(request: Request, body: RetrieveRequest, user: dict = D
     # 解析过滤参数
     filters = None
     if body.dataset_ids or body.doc_ids or body.doc_names:
-        from src.api.routers.query import resolve_filters
+        from src.api.routers._shared import resolve_filters
 
         filters = await resolve_filters(
             request.app.state.pg_store,
