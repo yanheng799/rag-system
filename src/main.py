@@ -19,6 +19,7 @@ from src.orchestration.query_rewriter import QueryRewriter
 from src.retrieval.bm25_search import BM25Searcher
 from src.retrieval.hybrid_search import HybridSearcher
 from src.retrieval.reranker import RerankerClient
+from src.retrieval.retrieval_service import RetrievalService
 from src.retrieval.vector_search import VectorSearcher
 from src.storage.milvus_store import MilvusStore
 from src.storage.oss_store import OSSStore
@@ -75,18 +76,24 @@ async def lifespan(app: FastAPI):
     # Prompt 构建器
     prompt_builder = PromptBuilder()
 
-    # 编排器
+    # 查询改写器与 Reranker（可选，按配置启用）
     query_rewriter = QueryRewriter(llm_client) if settings.query_rewrite_enabled else None
+    reranker_client = RerankerClient() if settings.rerank_api_url else None
+
+    # 统一检索服务（query 经 orchestrator、retrieve 直接调用，共用同一检索语义）
+    retrieval_service = RetrievalService(
+        query_rewriter=query_rewriter,
+        reranker=reranker_client,
+    )
+
+    # 编排器
     orchestrator = RAGOrchestrator(
         searcher=hybrid_searcher,
+        retrieval_service=retrieval_service,
         llm_client=llm_client,
         prompt_builder=prompt_builder,
         doc_store=pg_store,
-        query_rewriter=query_rewriter,
     )
-
-    # Reranker（仅配置了 API URL 时启用）
-    reranker_client = RerankerClient() if settings.rerank_api_url else None
 
     # 组件注入到 app.state
     app.state.pg_store = pg_store
@@ -99,6 +106,7 @@ async def lifespan(app: FastAPI):
     app.state.llm_client = llm_client
     app.state.query_rewriter = query_rewriter
     app.state.orchestrator = orchestrator
+    app.state.retrieval_service = retrieval_service
     app.state.reranker_client = reranker_client
 
     logger.info("RAG 系统初始化完成")

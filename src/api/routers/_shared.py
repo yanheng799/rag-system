@@ -1,13 +1,11 @@
-"""跨检索/问答路由共享的工具：过滤条件解析 + 文档文件名映射。
+"""跨检索/问答路由共享的工具：过滤条件解析。
 
 此前 resolve_filters 定义在 query.py、被 retrieve.py 反向 import（坏味道）；
-现统一收纳于此，供两个路由复用。build_doc_filename_map 同样是两端检索后都要做的
-doc_id → 真实 filename 富化，一并集中。
+现统一收纳于此，供两个路由复用。doc_id → filename 的富化由检索层的
+retrieval_service.build_doc_filename_map 提供（编排层也要用，不能放 API 层）。
 """
 
 from __future__ import annotations
-
-from src.models.chunks import RetrievedChunk
 
 
 async def resolve_filters(
@@ -41,17 +39,3 @@ async def resolve_filters(
     if not result:
         return None
     return {"doc_id": sorted(result)}
-
-
-async def build_doc_filename_map(
-    doc_store,
-    chunks: list[RetrievedChunk],
-) -> dict[str, str]:
-    """批量查询 chunks 涉及文档的真实 filename，返回 doc_id -> filename 映射。"""
-    unique_doc_ids = list({c.metadata.doc_id for c in chunks})
-    mapping: dict[str, str] = {}
-    for did in unique_doc_ids:
-        doc = await doc_store.get_document(did)
-        if doc:
-            mapping[did] = doc.filename
-    return mapping

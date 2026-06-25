@@ -39,6 +39,10 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
 
     org_id = user.get("org_id", "") or ""
 
+    # Reranker 检查（与 retrieve 接口一致：请求开启但未配置 → 503）
+    if body.use_reranker and getattr(request.app.state, "reranker_client", None) is None:
+        raise HTTPException(status_code=503, detail="Reranker 服务未配置")
+
     filters = await resolve_filters(
         request.app.state.pg_store,
         body.dataset_ids,
@@ -54,6 +58,8 @@ async def query(request: Request, body: QueryRequest, user: dict = Depends(get_c
         filters=filters,
         org_id=org_id,
         show_rewritten=body.show_rewritten,
+        use_reranker=body.use_reranker,
+        rerank_top_n=body.rerank_top_n,
     )
 
     return StreamingResponse(

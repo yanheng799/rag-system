@@ -25,6 +25,24 @@ from src.retrieval.reranker import RerankerClient
 logger = logging.getLogger(__name__)
 
 
+async def build_doc_filename_map(
+    doc_store,
+    chunks: list[RetrievedChunk],
+) -> dict[str, str]:
+    """批量查询 chunks 涉及文档的真实 filename，返回 doc_id -> filename 映射。
+
+    供编排层（orchestrator 构建 Prompt/sources）与 API 层（retrieve 展示）共用，
+    放在检索层以避免编排层反向依赖 API 层。
+    """
+    unique_doc_ids = list({c.metadata.doc_id for c in chunks})
+    mapping: dict[str, str] = {}
+    for did in unique_doc_ids:
+        doc = await doc_store.get_document(did)
+        if doc:
+            mapping[did] = doc.filename
+    return mapping
+
+
 class RetrievalService:
     """检索编排核心：rewrite + retrieve，searcher 按调用传入以支持多模式切换。"""
 

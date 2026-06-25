@@ -10,6 +10,8 @@ class QueryRequest(BaseModel):
     doc_ids: list[str] | None = None
     doc_names: list[str] | None = None
     show_rewritten: bool = Field(default=False, description="是否返回改写后的子查询")
+    use_reranker: bool = Field(default=False, description="是否启用 Reranker 重排序")
+    rerank_top_n: int = Field(default=5, ge=1, le=50, description="Reranker 输出数量")
 
 
 class ElementSchema(BaseModel):
