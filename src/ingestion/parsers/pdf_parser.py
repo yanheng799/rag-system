@@ -168,16 +168,15 @@ class PDFParser(BaseParser):
             if block["type"] != 0:  # 只处理文字块
                 continue
 
-            block_bbox = block["bbox"]
-
-            # 跳过与表格重叠的文字块
-            if self._is_in_table(block_bbox, table_bboxes):
-                continue
-
             # 阶段 1：收集有效行数据
             line_data_list: list[dict] = []
             for line in block["lines"]:
                 line_bbox = tuple(line["bbox"])
+
+                # 跳过与表格重叠的文字行（逐行判断，避免 block 内表格续行与
+                # 后续标题混在同一 block 时，整个 block 被丢弃导致标题丢失）
+                if self._is_in_table(line_bbox, table_bboxes):
+                    continue
 
                 line_text = ""
                 max_font_size = 0.0
