@@ -200,6 +200,8 @@ def group_elements_by_paragraph(
 
     # 阶段 1.5：孤立标题合并到下一个 group
     paragraphs = _merge_heading_only_groups(paragraphs)
+    # 阶段 1.6：孤立表格注释（注：…）并回前一个含表格的组
+    paragraphs = _attach_orphan_notes(paragraphs)
 
     # 阶段 2：超长分组拆分
     if max_chunk_size > 0:
@@ -241,6 +243,8 @@ def _group_by_fallback(
 
     # 孤立标题合并
     paragraphs = _merge_heading_only_groups(paragraphs)
+    # 孤立表格注释（注：…）并回前一个含表格的组
+    paragraphs = _attach_orphan_notes(paragraphs)
 
     # 超长分组拆分
     if max_chunk_size > 0:
@@ -264,9 +268,15 @@ def _merge_heading_only_groups(
         group = paragraphs[i]
         total_chars = sum(len(e.content) for e in group)
 
-        # 孤立标题：总字符少，且只有标题+图片元素
+        # 孤立标题：总字符少，且只有标题+图片元素（无正文/表格等实质内容）
         if total_chars < 40 and i + 1 < len(paragraphs):
-            has_content = any(not is_section_heading(e.content) and not e.is_image for e in group if e.content.strip())
+            # 标题判定用 is_heading_element（涵盖 elem_type=title 与正则标题），
+            # 而非 is_section_heading —— 后者只认 "1.1"/"第三章" 等严格编号格式，
+            # 会漏掉 "6 导地线型号" 这类"数字+空格"标题，使孤立标题被误判为"有
+            # 内容"而不合并到下一组，最终标题与正文分离、检索时等同于标题丢失。
+            has_content = any(
+                not is_heading_element(e) and not e.is_image for e in group if e.content.strip()
+            )
             if not has_content:
                 # 合并到下一个 group
                 paragraphs[i + 1] = group + paragraphs[i + 1]
@@ -277,6 +287,32 @@ def _merge_heading_only_groups(
         i += 1
 
     return merged
+
+
+def _attach_orphan_notes(paragraphs: list[list[ParsedElement]]) -> list[list[ParsedElement]]:
+    """把孤立的表格注释组（"注：…"开头）归并到前一个含表格的组。
+
+    表格脚注常因与表格之间存在间距或跨页，被切到独立段落组，导致表格 chunk
+    的 full_text 里看不到注释（如"表6-1 导线特性参数"的"注：参数参照…"
+    跨页落到下一页顶部）。这里把紧随表格的注释组并回表格组，使注释与表格
+    同属一个 chunk，注释出现在表格之后。
+    """
+    if len(paragraphs) <= 1:
+        return paragraphs
+
+    result: list[list[ParsedElement]] = []
+    for group in paragraphs:
+        is_note_group = (
+            bool(group)
+            and group[0].elem_type == "text"
+            and group[0].content.strip().startswith(("注", "备注", "附注"))
+            and not any(e.is_table or e.is_image for e in group)
+        )
+        if is_note_group and result and any(e.is_table for e in result[-1]):
+            result[-1] = result[-1] + group
+        else:
+            result.append(group)
+    return result
 
 
 def _split_oversized_groups(
@@ -339,6 +375,18 @@ def _split_group_by_size(
                     current = [caption, elem]
                     current_size = len(caption.content) + elem_size
                     continue
+            # 表格后的脚注/说明跟随表格，避免注释被拆离表格 chunk
+            # （大表格单独成组后，其紧邻的"注："注释及续行应随之，不拆到独立子组）
+            if (
+                any(e.is_table for e in current)
+                and not elem.is_table
+                and not elem.is_image
+                and not is_heading_element(elem)
+                and elem_size < 200
+            ):
+                current.append(elem)
+                current_size += elem_size
+                continue
             sub_groups.append(current)
             current = [elem]
             current_size = elem_size

@@ -100,6 +100,62 @@ class TestGroupByParagraph:
         assert len(result) == 1
         assert result[0][0][0].content == "第三章 设计"
 
+    def test_bare_number_heading_not_orphaned(self):
+        """"数字+空格"格式标题(is_title 但非严格编号)不应孤立，需与后续正文合并。
+
+        回归用例：塔位明细表 PDF 中 "6 导地线型号" 这类标题 elem_type=title，
+        但 is_section_heading 返回 False（不匹配 1.1/第三章 等严格编号）。
+        标题行较短(x1=300 < 正文右边界 455-30)会触发段末短行规则，使阶段1
+        将标题与正文切到不同组；此时须由孤立标题合并逻辑把标题并回正文组。
+        若用 is_section_heading 判定标题，会漏判此类标题，令标题与正文分离、
+        检索时等同于标题丢失。
+        """
+        elements = [
+            ParsedElement(elem_type="title", content="6 导地线型号", page=0, bbox=(140, 336, 300, 357)),
+            ParsedElement(
+                elem_type="text", content="导线采用钢芯铝绞线，地线采用光缆。", page=0, bbox=(140, 364, 455, 381)
+            ),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=0)
+        assert len(result) == 1
+        group = result[0][0]
+        assert group[0].is_title
+        assert any(not e.is_title for e in group)
+
+    def test_table_note_rejoins_table_group(self):
+        """表格的孤立注释（注：…）跨页分离后，应归并回前一个含表格的组。
+
+        回归：表6-1 的"注：参数参照…"跨页落到下一页顶部，被切到独立段落组，
+        导致表格 chunk 的 full_text 看不到注释。
+        """
+        elements = [
+            ParsedElement(elem_type="text", content="表X 参数表", page=0, bbox=(0, 0, 100, 10)),
+            ParsedElement(
+                elem_type="table", content="| a | b |\n|---|---|\n| 1 | 2 |", page=0, bbox=(0, 11, 100, 40)
+            ),
+            ParsedElement(elem_type="text", content="注：参数以招标为准。", page=1, bbox=(0, 0, 100, 10)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=0)
+        note_groups = [g for g, _ in result if any(e.content.startswith("注") for e in g)]
+        assert len(note_groups) == 1
+        assert any(e.is_table for e in note_groups[0])
+
+    def test_table_note_follows_table_when_split(self):
+        """大表格触发拆分时，其后的注释应跟随表格，不被拆到独立子组。
+
+        回归：表10.2-2 表格本身超 max_chunk_size 单独成组，其后的"注：…"
+        被拆到不含表格的独立 chunk，导致表格 chunk full_text 丢失注释。
+        """
+        big_table = "| a | b |\n|---|---|\n" + "".join(f"| {i} | {i} |\n" for i in range(120))
+        elements = [
+            ParsedElement(elem_type="table", content=big_table, page=0, bbox=(0, 0, 100, 500)),
+            ParsedElement(elem_type="text", content="注：参数以招标为准。", page=0, bbox=(0, 510, 100, 520)),
+        ]
+        result = group_elements_by_paragraph(elements, max_chunk_size=500)
+        for group, _ in result:
+            if any(e.content.startswith("注") for e in group):
+                assert any(e.is_table for e in group)
+
     def test_mixed_text_and_table(self):
         elements = [
             ParsedElement(elem_type="text", content="说明文字", page=0, bbox=(0, 0, 100, 10)),
