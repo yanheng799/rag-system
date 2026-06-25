@@ -9,6 +9,7 @@ from src.api.routers.retrieve import router
 from src.config.settings import settings
 from src.models.chunks import ChunkMetadata, RetrievedChunk
 from src.retrieval.reranker import RerankResult
+from src.retrieval.retrieval_service import RetrievalService
 
 
 def _make_chunk(chunk_id: str, full_text: str = "内容", score: float = 0.9) -> RetrievedChunk:
@@ -41,6 +42,8 @@ def _make_app(reranker_client=None, searcher=None):
     app.state.hybrid_searcher = searcher or MagicMock()
     app.state.vector_searcher = searcher or MagicMock()
     app.state.bm25_searcher = searcher or MagicMock()
+    # retrieve 现走统一 RetrievalService；注入与 reranker_client 同源的 reranker
+    app.state.retrieval_service = RetrievalService(query_rewriter=None, reranker=reranker_client)
     pg_store = MagicMock()
     pg_store.get_document = AsyncMock(return_value=_fake_doc())
     app.state.pg_store = pg_store
