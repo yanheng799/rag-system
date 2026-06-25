@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -11,6 +12,23 @@ from src.api.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, U
 from src.api.schemas.orgs import InvitationResponse, SwitchOrgRequest
 
 router = APIRouter(prefix="/api/v1/auth", tags=["认证管理"])
+
+INVITATION_TTL = timedelta(days=7)
+
+
+def _is_invitation_expired(created_at) -> bool:
+    """邀请是否超过有效期（默认 7 天）。
+
+    DB 经 asyncpg 返回 offset-aware datetime，而历史代码用 offset-naive 的
+    datetime.utcnow() 与之相减会抛 TypeError，故统一以 aware UTC 比较；
+    若 created_at 为 naive（如部分测试夹具），视为 UTC。
+    """
+    if created_at is None:
+        return False
+    now = datetime.now(UTC)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    return now - created_at > INVITATION_TTL
 
 
 def _get_token(request: Request) -> dict:
@@ -111,8 +129,6 @@ async def switch_org(request: Request, body: SwitchOrgRequest):
 
 @router.get("/invitations", response_model=list[InvitationResponse])
 async def list_invitations(request: Request):
-    from datetime import datetime, timedelta
-
     payload = _get_token(request)
     user_id = payload["user_id"]
     pg_store = request.app.state.pg_store
@@ -120,14 +136,12 @@ async def list_invitations(request: Request):
     invitations = await pg_store.list_invitations_by_user(user_id)
 
     result = []
-    now = datetime.utcnow()
     for inv in invitations:
         expired = False
         status = inv.status
-        if inv.status == "pending" and inv.created_at is not None:
-            if now - inv.created_at > timedelta(days=7):
-                status = "expired"
-                expired = True
+        if inv.status == "pending" and _is_invitation_expired(inv.created_at):
+            status = "expired"
+            expired = True
         result.append(InvitationResponse(
             invitation_id=inv.invitation_id,
             org_id=inv.org_id,
@@ -145,8 +159,6 @@ async def list_invitations(request: Request):
 
 @router.post("/invitations/{invitation_id}/accept", status_code=200)
 async def accept_invitation(request: Request, invitation_id: str):
-    from datetime import datetime, timedelta
-
     payload = _get_token(request)
     user_id = payload["user_id"]
     pg_store = request.app.state.pg_store
@@ -158,9 +170,8 @@ async def accept_invitation(request: Request, invitation_id: str):
         raise HTTPException(status_code=403, detail="这不是发给您的邀请")
     if inv.status != "pending":
         raise HTTPException(status_code=410, detail="邀请已失效")
-    if inv.created_at is not None:
-        if datetime.utcnow() - inv.created_at > timedelta(days=7):
-            raise HTTPException(status_code=410, detail="邀请已过期")
+    if _is_invitation_expired(inv.created_at):
+        raise HTTPException(status_code=410, detail="邀请已过期")
 
     import uuid
 
@@ -176,8 +187,6 @@ async def accept_invitation(request: Request, invitation_id: str):
 
 @router.post("/invitations/{invitation_id}/reject", status_code=200)
 async def reject_invitation(request: Request, invitation_id: str):
-    from datetime import datetime, timedelta
-
     payload = _get_token(request)
     user_id = payload["user_id"]
     pg_store = request.app.state.pg_store
@@ -189,9 +198,8 @@ async def reject_invitation(request: Request, invitation_id: str):
         raise HTTPException(status_code=403, detail="这不是发给您的邀请")
     if inv.status != "pending":
         raise HTTPException(status_code=410, detail="邀请已失效")
-    if inv.created_at is not None:
-        if datetime.utcnow() - inv.created_at > timedelta(days=7):
-            raise HTTPException(status_code=410, detail="邀请已过期")
+    if _is_invitation_expired(inv.created_at):
+        raise HTTPException(status_code=410, detail="邀请已过期")
 
     await pg_store.update_invitation_status(invitation_id, "rejected")
     return {"detail": "已拒绝邀请"}
