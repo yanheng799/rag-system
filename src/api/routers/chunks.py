@@ -32,6 +32,24 @@ router = APIRouter(prefix="/api/v1", tags=["分块管理"])
 
 EMBEDDING_MAX_CHARS = settings.embedding_max_input_length
 
+# 列表预览最大字符数
+CHUNK_PREVIEW_LIMIT = 200
+
+
+def _preview_text(text: str, limit: int = CHUNK_PREVIEW_LIMIT) -> str:
+    """生成列表预览：超长时头尾各保留一部分，确保末尾注释/结论可见。
+
+    纯从头截断会把表格 chunk 末尾的"注：…"等说明截掉，导致列表预览看不到
+    表格注释。改为头尾保留——头部约 60%、尾部约 40%，中间用省略号衔接。
+    """
+    if len(text) <= limit:
+        return text
+    marker = "\n...\n"
+    budget = limit - len(marker)
+    head_len = budget * 3 // 5
+    tail_len = budget - head_len
+    return text[:head_len] + marker + text[-tail_len:]
+
 
 async def _check_chunk_in_org(request: Request, chunk_id: str, org_id: str) -> None:
     """校验分块所属文档是否属于指定组织"""
@@ -211,7 +229,7 @@ async def list_chunks(
             page=r.page,
             chunk_index=r.chunk_index,
             char_count=r.char_count,
-            full_text=r.full_text[:200],
+            full_text=_preview_text(r.full_text),
             element_count=len(r.elements) if isinstance(r.elements, list) else 0,
             image_urls=r.image_urls if isinstance(r.image_urls, list) else [],
             group_id=r.group_id,

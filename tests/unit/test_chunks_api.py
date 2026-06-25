@@ -7,10 +7,12 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from src.api.routers.chunks import (
+    CHUNK_PREVIEW_LIMIT,
     EMBEDDING_MAX_CHARS,
     _cleanup_oss_images,
     _detect_chunk_type,
     _dissolve_orphan_groups,
+    _preview_text,
     _validate_char_limit,
     _validate_merge_no_gap,
     _validate_merge_same_doc,
@@ -319,3 +321,44 @@ class TestCleanupOssImages:
         oss = _FakeOssStore()
         await _cleanup_oss_images(oss, [])
         assert oss.deleted == []
+
+
+# ---- _preview_text ----
+
+
+class TestPreviewText:
+    """列表预览截断：头尾保留，确保末尾注释可见"""
+
+    def test_short_text_not_truncated(self):
+        assert _preview_text("短文本") == "短文本"
+
+    def test_exact_limit_not_truncated(self):
+        text = "a" * CHUNK_PREVIEW_LIMIT
+        assert _preview_text(text) == text
+
+    def test_long_text_keeps_head_and_tail(self):
+        text = "头" * 300 + "尾" * 300
+        preview = _preview_text(text)
+        assert len(preview) <= CHUNK_PREVIEW_LIMIT
+        assert preview.startswith("头")
+        assert preview.endswith("尾")
+        assert "..." in preview
+
+    def test_table_chunk_tail_note_visible(self):
+        """回归：表格 chunk 末尾的'注：…'不能被列表预览截掉。
+
+        full_text = 表标题 + 多行表格 markdown（长） + 末尾注释。
+        从头截断 200 字符会把末尾注释截掉；头尾保留后注释应可见。
+        """
+        header = "表6-2 地线参数\n"
+        # 构造一段足够长的表格 markdown，把注释推到 200 字符之外
+        rows = "\n".join(f"| 项目{i} | 数据{i} |" for i in range(40))
+        note = "注：参数参照物资招标技术规范书，具体参数以中标结果为准。"
+        full_text = header + rows + "\n" + note
+
+        assert len(full_text) > CHUNK_PREVIEW_LIMIT  # 确实超长
+        assert note not in full_text[:CHUNK_PREVIEW_LIMIT]  # 从头截断会丢注释
+
+        preview = _preview_text(full_text)
+        assert note in preview  # 头尾保留后注释可见
+        assert "表6-2" in preview  # 头部表标题仍保留

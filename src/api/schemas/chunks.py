@@ -16,7 +16,7 @@ class ChunkListItem(BaseModel):
     page: int
     chunk_index: int
     char_count: int
-    full_text: str = Field(description="截断预览，最多 200 字符")
+    full_text: str = Field(description="截断预览，最多 200 字符；超长时头尾保留，确保末尾注释可见")
     element_count: int
     image_urls: list[str] = []
     group_id: str = ""
