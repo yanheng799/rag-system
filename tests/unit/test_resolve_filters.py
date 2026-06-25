@@ -65,18 +65,24 @@ async def test_doc_names_only():
 
 
 @pytest.mark.asyncio
-async def test_mixed_filters_merge_and_dedup():
+async def test_mixed_filters_intersect():
+    """多条件取交集（dataset ∩ doc_names），语义见 commit ee125b2「查询过滤交集」"""
     pg = FakePgStore(
         dataset_to_docs={"ds_001": ["doc_a", "doc_b"]},
         name_to_docs={"report.pdf": ["doc_a", "doc_c"]},
     )
-    result = await resolve_filters(
-        pg,
-        ["ds_001"],
-        ["doc_d"],
-        ["report.pdf"],
-    )
-    assert set(result["doc_id"]) == {"doc_a", "doc_b", "doc_c", "doc_d"}
+    # dataset={a,b} ∩ names={a,c} = {a}
+    result = await resolve_filters(pg, ["ds_001"], None, ["report.pdf"])
+    assert result == {"doc_id": ["doc_a"]}
+
+
+@pytest.mark.asyncio
+async def test_mixed_filters_disjoint_returns_none():
+    """多条件交集为空 → None"""
+    pg = FakePgStore(dataset_to_docs={"ds_001": ["doc_a", "doc_b"]})
+    # dataset={a,b} ∩ doc_ids={x} = {}
+    result = await resolve_filters(pg, ["ds_001"], ["doc_x"], None)
+    assert result is None
 
 
 @pytest.mark.asyncio

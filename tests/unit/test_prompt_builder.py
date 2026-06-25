@@ -41,8 +41,8 @@ class TestPromptBuilder:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
         assert "华东区情况如何？" in messages[1]["content"]
-        assert "来源1" in messages[1]["content"]
-        assert "来源2" in messages[1]["content"]
+        assert "参考资料1" in messages[1]["content"]
+        assert "参考资料2" in messages[1]["content"]
         assert "报告.pdf" in messages[1]["content"]
 
     def test_build_with_empty_chunks(self):
