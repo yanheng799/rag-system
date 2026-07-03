@@ -7,10 +7,6 @@
       <div class="detail-info" v-if="dataset">
         <h1 class="detail-name">{{ dataset.name }}</h1>
         <p class="detail-desc" v-if="dataset.description">{{ dataset.description }}</p>
-        <div class="detail-actions">
-          <a-button type="text" size="small" @click="openEditModal"><EditOutlined /> 编辑</a-button>
-          <a-button type="text" size="small" danger @click="confirmDeleteDataset"><DeleteOutlined /> 删除</a-button>
-        </div>
       </div>
     </div>
 
@@ -85,14 +81,14 @@
         </a-popover>
       </div>
       <div class="strategy-pills">
-        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'paragraph' }" @click="chunkForm.strategy = 'paragraph'">
-          <align-left-outlined />
-          <span>段落分块</span>
-          <span class="strategy-pill-badge">推荐</span>
-        </div>
         <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'heading' }" @click="chunkForm.strategy = 'heading'">
           <read-outlined />
           <span>标题分块</span>
+          <span class="strategy-pill-badge">推荐</span>
+        </div>
+        <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'paragraph' }" @click="chunkForm.strategy = 'paragraph'">
+          <align-left-outlined />
+          <span>段落分块</span>
         </div>
         <div class="strategy-pill" :class="{ active: chunkForm.strategy === 'fixed_size' }" @click="chunkForm.strategy = 'fixed_size'">
           <column-width-outlined />
@@ -201,17 +197,6 @@
         </template>
       </template>
     </a-table>
-
-    <a-modal v-model:open="editModalVisible" title="编辑知识库" @ok="handleEditSubmit" :confirm-loading="editSubmitting" centered>
-      <a-form layout="vertical" :model="editForm" :rules="editFormRules" ref="editFormRef" style="margin-top: 16px">
-        <a-form-item label="名称" name="name">
-          <a-input v-model:value="editForm.name" name="name" autocomplete="off" />
-        </a-form-item>
-        <a-form-item label="描述" name="description">
-          <a-textarea v-model:value="editForm.description" :rows="3" name="description" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
     </template>
   </div>
 </template>
@@ -220,8 +205,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { UploadOutlined, SettingOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, EditOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined, AlignLeftOutlined, ReadOutlined, ColumnWidthOutlined, FileTextOutlined, MessageOutlined } from '@ant-design/icons-vue'
-import { getDataset, updateDataset, deleteDataset, type DatasetResponse } from '@/api/datasets'
+import { UploadOutlined, SettingOutlined, ReloadOutlined, SearchOutlined, FileSearchOutlined, UnorderedListOutlined, RedoOutlined, DeleteOutlined, FileOutlined, ArrowLeftOutlined, EyeOutlined, AlignLeftOutlined, ReadOutlined, ColumnWidthOutlined, FileTextOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import { getDataset, type DatasetResponse } from '@/api/datasets'
 import { uploadDocuments, ingestDocuments, getDocumentStatus, deleteDocument, listDocuments, type DocumentStatusResponse, type ChunkOptions } from '@/api/documents'
 
 const router = useRouter()
@@ -237,17 +222,9 @@ let uploadUid = 0
 const ingesting = ref(false)
 const refreshing = ref(false)
 const selectedPending = ref<string[]>([])
-const editModalVisible = ref(false)
-const editSubmitting = ref(false)
-const editForm = ref({ name: '', description: '' })
-const editFormRef = ref()
-
-const editFormRules = {
-  name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
-}
 
 const chunkForm = ref({
-  strategy: 'paragraph',
+  strategy: 'heading',
   max_size: null as number | null,
   min_size: null as number | null,
   overlap: null as number | null,
@@ -493,30 +470,6 @@ function stopPolling() {
   }
 }
 
-function openEditModal() {
-  editForm.value = { name: dataset.value?.name || '', description: dataset.value?.description || '' }
-  editModalVisible.value = true
-}
-
-async function handleEditSubmit() {
-  try {
-    await editFormRef.value?.validateFields()
-  } catch {
-    return
-  }
-  editSubmitting.value = true
-  try {
-    await updateDataset(datasetId, editForm.value)
-    message.success('更新成功')
-    editModalVisible.value = false
-    fetchDataset()
-  } catch (e: unknown) {
-    message.error((e as Error).message)
-  } finally {
-    editSubmitting.value = false
-  }
-}
-
 function buildChunkOptions(): ChunkOptions | undefined {
   const opts: ChunkOptions = {}
   let hasValue = false
@@ -526,23 +479,6 @@ function buildChunkOptions(): ChunkOptions | undefined {
   if (chunkForm.value.overlap != null) { opts.overlap = chunkForm.value.overlap; hasValue = true }
   if (chunkForm.value.vertical_gap != null) { opts.vertical_gap = chunkForm.value.vertical_gap; hasValue = true }
   return hasValue ? opts : undefined
-}
-
-function confirmDeleteDataset() {
-  Modal.confirm({
-    title: '确认删除知识库？',
-    content: '将删除知识库及其所有文档、分块和向量数据',
-    okType: 'danger',
-    onOk: async () => {
-      try {
-        await deleteDataset(datasetId, true)
-        message.success('删除成功')
-        router.push('/datasets')
-      } catch (e: unknown) {
-        message.error((e as Error).message)
-      }
-    },
-  })
 }
 
 onMounted(() => {
@@ -592,12 +528,6 @@ onUnmounted(stopPolling)
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   margin-top: var(--space-1);
-}
-
-.detail-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 
 .compact-uploader :deep(.ant-upload-drag) {
